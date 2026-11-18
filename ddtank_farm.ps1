@@ -1,0 +1,1366 @@
+﻿# =====================================================================
+#  DDTank - tu dong thu hoach nong trai + trong khoai tay (MuMu Player + ADB)
+#  Quy trinh: mo thiet bi "auto" -> mo app DDTank -> vao game -> Ban be ->
+#             Nong trai -> thu hoach (di theo duong ran) -> gieo khoai 10 o ->
+#             kiem tra -> tat app -> tat thiet bi
+#  Chay:  run.bat -Account <ten tai khoan 7Road>
+#  Tham so: -Account ten  (bat buoc khi game doi dang nhap: tai khoan 7Road da luu
+#                          trong app - script chon tu danh sach, mat khau app tu dien)
+#  Tuy chon: -KeepDevice   (khong tat thiet bi khi xong - de test)
+#            -SkipLaunch   (thiet bi da mo san va dang o trong game)
+#            -LoginOnly    (chi dang nhap toi sanh chinh roi dung)
+#            -StepShots    (luu anh tung buoc vao logs\)
+#            -TestTelegram (chi gui thu anh len Telegram - kiem tra telegram.json)
+#            -Manual       (chay tay: bo qua /tamdung - run.bat va lenh /chay tu them)
+#            -ViewOnly     (chi chup anh ruong gui Telegram - lenh /xemruong)
+#  Telegram: dien bot_token + chat_id vao telegram.json (xem README.md)
+#  Tu lap lich: chay xong tu hen lan sau luc khoai chin ($AutoSchedule, xem phan CAU HINH)
+# =====================================================================
+param(
+    [string]$Account,      # tai khoan 7Road
+    [switch]$KeepDevice,
+    [switch]$SkipLaunch,
+    [switch]$StepShots,    # luu anh man hinh o tung buoc vao logs\ (de kiem tra)
+    [switch]$LoginOnly,    # chi dang nhap toi sanh chinh roi dung (de test)
+    [switch]$TestTelegram, # chi gui thu 2 anh gan nhat trong logs\ len Telegram roi thoat
+    [switch]$Manual,       # chay tay (run.bat, /chay): van chay khi dang /tamdung
+    [switch]$ViewOnly      # chi vao nong trai chup anh ruong, khong thu hoach / gieo / lap lich (/xemruong)
+)
+
+# ------------------------- KICH THUOC MAN HINH -------------------------
+#  Thiet bi "auto" hien tai: 1600 x 900 (ngang), DPI 240
+#    - MuMu: Cai dat > Hien thi > Tuy chinh 1600 x 900, DPI 240
+#    - adb: "wm size" bao 900x1600 (chieu doc goc), game chay ngang nen anh chup = 1600x900
+#  Moi so lieu pixel trong script deu do o kich thuoc nay:
+#    - Anh mau trong templates\ (13 file): so khop tung pixel, KHONG tu co gian
+#    - Toa do co dinh: $FarmWalkPoint, $BackRowWalkOffset, $PlotOffsets,
+#      vung tim kiem (o dieu khoan, popup "Nhan de tiep tuc"), khoang cach hang (45 px)
+#      va he so isometric (0.51 / 0.89 / 0.45) trong Harvest-All
+#  Neu doi sang kich thuoc khac (vd 1280x720, 1920x1080) hoac doi DPI:
+#    - Anh mau se khong con khop -> script khong thay nut, ban tay, bien go, hat giong...
+#      -> bao loi "Khong vao duoc sanh chinh" / thu hoach 0 o / "Khong tim thay ruong"
+#    - Toa do co dinh se bam lech -> nhan vat di sai cho, keo hat truot khoi o dat
+#    - Phan dang nhap 7Road (doc giao dien Android bang uiautomator) van chay dung
+#  => Tot nhat giu nguyen 1600x900 / DPI 240. Neu bat buoc doi: chup lai toan bo
+#     anh mau o kich thuoc moi va do lai cac toa do/offset tren (hoac nhan he so ty le
+#     moi chieu = rong_moi/1600, cao_moi/900 - chi dung khi giu ty le 16:9 va game
+#     khong doi bo cuc giao dien).
+# ---------------------------------------------------------------------
+
+# ----------------------------- CAU HINH ------------------------------
+$MuMuDir    = "D:\Program Files\Netease\MuMuPlayer\nx_main"
+$DeviceName = "auto"
+$Package    = "com.wan.ddten"     # app "DDTank"
+$PlotCount  = 10
+# Diem bam (tren man hinh luc vua vao nong trai) de nhan vat di toi canh ruong
+$FarmWalkPoint = @(600, 190)
+# Xong hang truoc -> di toi diem nay (lech so voi ban tay o dau hang sau) roi moi thu hang sau
+$BackRowWalkOffset = @(-133, -42)
+# Cay dang lon (chua co o chin) thi cho them toi da bao nhieu phut (0 = khong cho, ket thuc luon).
+# Di cung $AutoDelayMinutes am: lich hen truoc gio chin vai phut, vao toi noi thi cho cay chin roi thu luon.
+$WaitRipeMinutes = 12
+# Thoi gian khoai chin (gio) - dung de bao "thu hoach tiep theo" tren Telegram + tu lap lich
+$GrowHours = 8
+
+# Tu lap lich lan chay tiep theo cho TUNG tai khoan (task "DDTank Farm - <tai khoan>", chay 1 lan)
+#  - Gieo xong: hen luc khoai chin + $AutoDelayMinutes phut (am = TRUOC gio chin; vd -5 = truoc 5 phut,
+#    ket hop $WaitRipeMinutes = 12: vao ruong truoc gio chin, cho cay chin roi thu hoach + gieo ngay)
+#  - Cay dang lon: hen theo gio chin da luu (state\<tai khoan>.json); qua gio chin ma van chua chin thi thu lai sau $RetryMinutes phut
+#  - Loi: thu lai sau $ErrorRetryMinutes phut; qua $MaxRetries lan lien tiep thi dung chuoi
+#  - Tat chuoi cua 1 tai khoan: lenh bot /huylich <tk> (tao file state\<tk>.off); /chay <tk> bat lai
+$AutoSchedule      = $true
+$AutoDelayMinutes  = -5
+$RetryMinutes      = 10
+$ErrorRetryMinutes = 30
+$MaxRetries        = 3
+
+# Mang Internet (vd Wi-Fi USB chua ket noi lai sau khi may thuc day)
+#  - Truoc khi chay: cho co mang toi da $NetWaitMinutes phut
+#  - Mat mang (luc bat dau hoac giua chung): hen lai sau $OfflineRetryMinutes phut, KHONG tinh vao $MaxRetries,
+#    khong gui Telegram moi lan; co mang lai thi tin lan chay sau co dong "📵 Mat mang tu ..."
+#  - Tin Telegram gui khong duoc -> luu vao logs\telegram_cho_gui\, lan chay sau co mang thi gui bu
+$NetWaitMinutes      = 5
+$OfflineRetryMinutes = 10
+$NetTestHosts        = @('api.telegram.org', 'www.google.com', '1.1.1.1')   # thu ket noi cong 443
+$AutoReconnect       = $true   # mat mang -> tu ket noi lai Wi-Fi da luu (ket_noi_mang.ps1)
+$NetRepairAfterSec   = 60      # mat mang 60s -> netsh ket noi lai; 120s -> them khoi dong lai card Wi-Fi (can quyen admin)
+
+# Gio bao tri game hang tuan, tinh theo GIO VIET NAM ($MaintTimeZone, dung du may de mui gio nao). Lich roi vao khung [Start - $MaintBeforeMin, End + $MaintAfterMin) se duoc doi
+# sang sau gio bao tri; dang trong gio bao tri thi khong chay, loi trong gio bao tri khong tinh vao $MaxRetries.
+# Day: Monday Tuesday Wednesday Thursday Friday Saturday Sunday. Them dong neu co nhieu khung gio.
+$MaintenanceWindows = @(
+    @{ Day = 'Thursday'; Start = '14:00'; End = '15:00' }    # thu 5, 14h-15h
+)
+$MaintBeforeMin = 25    # khong bat dau chay trong 25 phut truoc gio bao tri (1 luot: ~6 phut + cho chin toi da $WaitRipeMinutes)
+$MaintAfterMin  = 15    # cho them 15 phut sau gio bao tri (phong bao tri keo dai)
+$MaintTimeZone  = 'SE Asia Standard Time'   # UTC+7: Ha Noi / Bangkok
+
+# Kiem tra may truoc khi mo MuMu (thiet bi can ~2-3 GB RAM). Thieu thi van chay nhung canh bao tren Telegram.
+$MinFreeRamMB  = 2500   # RAM trong (Available) toi thieu
+$MinFreeDiskGB = 5      # dung luong trong toi thieu o C: va o chua script
+# Don log: xoa log + anh cac lan chay cu hon $KeepLogDays ngay (state\lich_su.jsonl cho /thongke duoc giu lai)
+$KeepLogDays   = 14
+
+# Thao tac giong nguoi (giam rui ro bi nhan ra la auto):
+#  $DirectTouch: bam bang cach ghi thang su kien cham vao thiet bi cam ung cua MuMu ("Xiaomi Input" = dung duong click chuot that)
+#                thay vi "input tap" (cu cham khong gan thiet bi nao). Loi thi tu quay ve "input tap".
+#  $HumanLike  : lech toa do bam/vuot vai pixel, giu ngon 50-120ms, cho giua cac buoc dao dong, luot tu dong bat dau lech 0-60s.
+$DirectTouch  = $true
+$HumanLike    = $true
+$TapJitterPx  = 5       # lech toa do bam toi da +-5px (man hinh 1600x900)
+$StartJitterSec = 60    # luot tu dong (khong -Manual) cho ngau nhien 0-60s truoc khi mo MuMu
+
+# Thu lai NGAY trong luot khi thao tac game loi (popup la, game lag, khong thay nut...): lan 1 mo lai game,
+# lan 2 khoi dong lai thiet bi. Het so lan moi bao loi + hen lai sau $ErrorRetryMinutes nhu cu.
+$StepRetries   = 3      # moi buoc nho (vao game, mo nong trai, thu hoach, gieo hat) loi thi lam lai buoc do, toi da 3 lan
+$InRunRetries  = 1      # het lan thu cua 1 buoc -> khoi dong lai thiet bi va chay lai ca luot (1 lan)
+$RetryBudgetMin = 35    # luot da chay qua 35 phut thi thoi thu lai (Task Scheduler diet luot sau 45 phut)
+# Loi ma thu lai cung vo ich -> bao loi luon (thieu cau hinh / tai khoan / het hat)
+$NoRetryErrors = 'chưa truyền -Account|chưa được app lưu mật khẩu|Không thấy tài khoản|Không tìm thấy hạt khoai tây'
+
+# Toa do 10 o dat tinh tu tam bien go canh ruong (farm_sign).
+# Thu tu keo hat: hang truoc phai -> trai, roi hang sau trai -> phai.
+$PlotOffsets = @(
+    @(253,336), @(163,286), @(73,236), @(-22,186), @(-117,136),   # hang truoc (gan nhan vat)
+    @(-22,86),  @(73,136),  @(168,186), @(263,236), @(358,281)    # hang sau
+)
+# ---------------------------------------------------------------------
+
+$ErrorActionPreference = "Stop"
+$Root     = $PSScriptRoot
+$Tpl      = Join-Path $Root "templates"
+$LogDir   = Join-Path $Root "logs"
+. (Join-Path $Root "ket_noi_mang.ps1")   # Get-WifiInfo, Save-WifiProfile, Repair-Network
+$Shot     = Join-Path $env:TEMP "ddtank_farm_screen.raw"   # anh RAW (chup nhanh hon PNG), log van luu PNG
+$Manager  = Join-Path $MuMuDir "MuMuManager.exe"
+$Adb      = Join-Path $MuMuDir "adb.exe"
+New-Item -ItemType Directory -Force $LogDir | Out-Null
+$Stamp    = Get-Date -Format "yyyyMMdd_HHmmss"
+$LogFile  = Join-Path $LogDir "run_$Stamp.log"
+
+# Bien dich Vision.cs o che do toi uu (/optimize) -> so anh nhanh hon
+$cp = New-Object System.CodeDom.Compiler.CompilerParameters
+$cp.CompilerOptions = "/optimize+"
+[void]$cp.ReferencedAssemblies.Add("System.Drawing.dll")
+Add-Type -TypeDefinition (Get-Content (Join-Path $Root "Vision.cs") -Raw) -CompilerParameters $cp
+
+function Log($msg) {
+    $line = "[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $msg
+    Write-Host $line
+    Add-Content -Path $LogFile -Value $line -Encoding UTF8
+}
+
+# ---------------------------- MuMu / ADB -----------------------------
+function Get-MuMuInfo {
+    $json = (& $Manager info -v all) -join "`n"
+    $all = $json | ConvertFrom-Json
+    foreach ($p in $all.PSObject.Properties) {
+        if ($p.Value.name -eq $DeviceName) { return $p.Value }
+    }
+    throw "Không tìm thấy thiết bị MuMu tên '$DeviceName'"
+}
+
+$script:Serial = $null
+$script:Index  = $null
+
+function Start-Device {
+    $info = Get-MuMuInfo
+    $script:Index = $info.index
+    if (-not $info.is_android_started) {
+        Log "Mo thiet bi '$DeviceName' (index $($info.index))..."
+        & $Manager control -v $info.index launch | Out-Null
+    } else {
+        Log "Thiet bi '$DeviceName' da chay san"
+    }
+    # cho Android khoi dong xong VA co cong ADB
+    $deadline = (Get-Date).AddMinutes(3)
+    while (-not ($info.is_android_started -and $info.adb_port)) {
+        if ((Get-Date) -gt $deadline) { throw "Thiết bị không khởi động được trong 3 phút" }
+        Start-Sleep 3
+        $info = Get-MuMuInfo
+    }
+    $script:Serial = "$($info.adb_host_ip):$($info.adb_port)"
+    & $Adb connect $script:Serial | Out-Null
+    # cho ADB tra loi duoc
+    $deadline = (Get-Date).AddMinutes(1)
+    while ((& $Adb -s $script:Serial shell getprop sys.boot_completed 2>$null) -notmatch "1") {
+        if ((Get-Date) -gt $deadline) { throw "ADB không kết nối được tới $script:Serial" }
+        Start-Sleep 2
+        & $Adb connect $script:Serial | Out-Null
+    }
+    Start-Sleep 3
+    Log "ADB: $script:Serial"
+    Find-TouchDevice
+}
+
+# ---------------------- Bam / vuot giong nguoi ----------------------
+$script:TouchDev = $null          # vd /dev/input/event4 (so thu tu co the doi sau khi khoi dong lai may ao)
+$script:TouchPushed = @{}
+$TouchTmp = Join-Path $env:TEMP "ddtank_farm_cham"
+
+# LUU Y: script dat $ErrorActionPreference = "Stop"; PowerShell 5.1 bien moi dong stderr cua lenh ngoai (adb) thanh loi
+# (ke ca khi "2>$null") -> cac ham duoi day tu dat 'Continue' trong pham vi ham va doc stderr qua cmd /c.
+function Find-TouchDevice {
+    if (-not $DirectTouch) { return }
+    $ErrorActionPreference = 'Continue'
+    $dev = $null
+    try {
+        # getevent luon in canh bao "could not get driver version ..." ra stderr -> bo qua bang cmd 2>nul
+        $lines = cmd /c "`"$Adb`" -s $($script:Serial) shell getevent -p 2>nul"
+    } catch { $lines = @() }
+    foreach ($l in $lines) {
+        if ($l -match 'add device \d+:\s*(/dev/input/event\d+)') { $cur = $Matches[1] }
+        elseif ($l -match 'name:\s*"Xiaomi Input"') { $dev = $cur; break }
+    }
+    $script:TouchDev = $dev
+    $script:TouchPushed = @{}
+    if ($dev) { Log "Thiet bi cam ung: $dev (bam bang ghi thang su kien)" } else { Log "Khong thay thiet bi cam ung 'Xiaomi Input' -> bam bang input tap" }
+}
+
+# Chut ngau nhien: so ngau nhien nguyen trong [a, b]
+function Rnd([int]$a, [int]$b) { Get-Random -Minimum $a -Maximum ($b + 1) }
+
+# Cho $sec giay, dao dong 90%-140% khi $HumanLike
+function Nap([double]$sec) {
+    if ($HumanLike) { $sec = $sec * (0.9 + (Get-Random -Maximum 51) / 100.0) }
+    Start-Sleep -Milliseconds ([int]($sec * 1000))
+}
+
+# File nhi phan struct input_event (64-bit, 24 byte/su kien; gio = 0 -> he thong tu dong gio)
+function New-TouchBin($path, $events) {
+    $fs = [IO.File]::Create($path); $w = New-Object IO.BinaryWriter $fs
+    foreach ($e in $events) { $w.Write([long]0); $w.Write([long]0); $w.Write([uint16]$e[0]); $w.Write([uint16]$e[1]); $w.Write([int]$e[2]) }
+    $w.Close()
+}
+
+function Push-TouchFile($name, $events) {
+    if ($script:TouchPushed[$name]) { return }
+    $ErrorActionPreference = 'Continue'
+    New-Item -ItemType Directory -Force $TouchTmp | Out-Null
+    $local = Join-Path $TouchTmp "$name.bin"
+    New-TouchBin $local $events
+    $o = cmd /c "`"$Adb`" -s $($script:Serial) push `"$local`" /data/local/tmp/ddt_$name.bin 2>&1"
+    if ($LASTEXITCODE -ne 0) { throw "push $name loi: $o" }
+    $script:TouchPushed[$name] = $true
+}
+
+function Tap($x, $y, [int]$jit = $TapJitterPx) {
+    $ErrorActionPreference = 'Continue'   # xem LUU Y o Find-TouchDevice
+    $x = [int]$x; $y = [int]$y
+    if ($HumanLike -and $jit -gt 0) { $x += Rnd (-$jit) $jit; $y += Rnd (-$jit) $jit }
+    $x = [Math]::Max(1, [Math]::Min(1598, $x)); $y = [Math]::Max(1, [Math]::Min(898, $y))
+    if ($script:TouchDev) {
+        try {
+            # toa do RAW cua thiet bi cam ung (doc 900x1600): X = 900 - y, Y = x (do tu getevent luc nguoi choi click)
+            Push-TouchFile 'len' @(@(3, 57, -1), @(1, 330, 0), @(0, 0, 0))
+            $k = "x_${x}_$y"
+            Push-TouchFile $k @(@(3, 57, 1), @(1, 330, 1), @(3, 53, (900 - $y)), @(3, 54, $x), @(0, 0, 0))
+            $hold = if ($HumanLike) { (Rnd 50 120) / 1000.0 } else { 0.06 }
+            $holdS = $hold.ToString('0.000', [Globalization.CultureInfo]::InvariantCulture)
+            $o = cmd /c "`"$Adb`" -s $($script:Serial) shell `"cat /data/local/tmp/ddt_$k.bin > $($script:TouchDev) && sleep $holdS && cat /data/local/tmp/ddt_len.bin > $($script:TouchDev)`" 2>&1"
+            if ($LASTEXITCODE -ne 0 -or "$o" -match 'denied|No such') { throw "$o" }
+            return
+        } catch {
+            Log "Ghi su kien cham loi ($($_.Exception.Message)) -> tu gio dung input tap"
+            $script:TouchDev = $null
+        }
+    }
+    & $Adb -s $script:Serial shell input tap $x $y | Out-Null
+}
+
+# Vuot (cuon danh sach): lech diem dau/cuoi vai pixel, thoi gian vuot dao dong 85%-125%
+function Swipe($x1, $y1, $x2, $y2, [int]$ms) {
+    if ($HumanLike) {
+        $x1 = [int]$x1 + (Rnd -4 4); $y1 = [int]$y1 + (Rnd -4 4); $x2 = [int]$x2 + (Rnd -4 4); $y2 = [int]$y2 + (Rnd -4 4)
+        $ms = [int]($ms * (Rnd 85 125) / 100)
+    }
+    & $Adb -s $script:Serial shell input swipe ([int]$x1) ([int]$y1) ([int]$x2) ([int]$y2) $ms | Out-Null
+}
+
+# Thu lai trong luot: tat app (va neu -Device thi tat + bat lai ca thiet bi). Enter-Game se tu mo lai app.
+$script:RetryNotes = @()
+$script:NetRepairDone = @()
+
+# Co the thu lai tiep khong (chua het thoi gian, khong tam dung / bao tri / mat mang, loi khong thuoc loai vo ich)
+function Can-Retry([string]$msg) {
+    if ($script:Paused -or $script:InMaintenance) { return $false }
+    if ($msg -match $NoRetryErrors) { return $false }
+    if (((Get-Date) - $script:StartTime).TotalMinutes -gt $RetryBudgetMin) { Log "Da chay qua $RetryBudgetMin phut -> khong thu lai nua"; return $false }
+    if (Get-MaintenanceEnd (Get-Date)) { return $false }
+    if (-not (Test-Internet)) { return $false }
+    return $true
+}
+
+# Dong cac popup co nut X dang che man hinh (toi da 3 cai)
+function Close-Popups {
+    for ($k = 0; $k -lt 3; $k++) {
+        Snap | Out-Null
+        $x = Find "popup_close" 12
+        if (-not $x.Count) { return }
+        Log "Dong popup tai ($($x[0].X),$($x[0].Y))"; Tap $x[0].X $x[0].Y; Nap 1.5
+    }
+}
+
+# Chay 1 buoc nho; loi thi sua ($Fix, mac dinh: dong popup) roi lam lai CHINH BUOC DO, toi da $StepRetries lan.
+# Het lan -> nem loi ra ngoai (vong ngoai se khoi dong lai thiet bi / bao loi).
+function Retry-Step([string]$Key, [string]$Label, [scriptblock]$Do, [scriptblock]$Fix = { Close-Popups }) {
+    for ($k = 1; ; $k++) {
+        try { return (& $Do) }
+        catch {
+            $msg = $_.Exception.Message
+            if ($k -ge $StepRetries -or -not (Can-Retry $msg)) { throw }
+            Log "Buoc '$Key' loi (lan $k/$StepRetries): $msg -> lam lai buoc nay"
+            $script:RetryNotes += "🔁 Bước $Label lỗi lần ${k}: $msg → làm lại bước"
+            try { Save-Shot "loi_${Key}_$k" } catch {}
+            try { & $Fix } catch { Log "Sua truoc khi thu lai loi: $($_.Exception.Message)" }
+            Nap 2
+        }
+    }
+}
+function Restart-Game([switch]$Device) {
+    try { & $Manager control -v $script:Index app close -pkg $Package | Out-Null } catch {}
+    Nap 3
+    if ($Device) {
+        Log "Tat thiet bi '$DeviceName' de khoi dong lai..."
+        try { & $Manager control -v $script:Index shutdown | Out-Null } catch {}
+        $dl = (Get-Date).AddSeconds(90)
+        do { Start-Sleep 3; $i = Get-MuMuInfo } while ($i.is_android_started -and (Get-Date) -lt $dl)
+        Start-Sleep 3
+        Start-Device
+    }
+}
+
+function Stop-Device {
+    if ($null -eq $script:Index) { return }
+    Log "Tat app DDTank..."
+    if ($script:Serial) { cmd /c "`"$Adb`" -s $($script:Serial) shell `"rm -f /data/local/tmp/ddt_*.bin`" >nul 2>&1" }   # file cham tam
+    & $Manager control -v $script:Index app close -pkg $Package | Out-Null
+    Start-Sleep 2
+    if ($KeepDevice) { Log "Giu thiet bi (-KeepDevice)"; return }
+    Log "Tat thiet bi '$DeviceName'..."
+    & $Manager control -v $script:Index shutdown | Out-Null
+}
+
+function Snap {
+    # RAW (khong -p): may ao khong phai nen PNG -> ~0.7s thay vi ~1.3s moi lan chup
+    cmd /c "`"$Adb`" -s $script:Serial exec-out screencap > `"$Shot`""
+    [Vision]::Reset()
+    return $Shot
+}
+
+function Save-Shot($name) {
+    $dst = Join-Path $LogDir "${Stamp}_$name.png"
+    [Vision]::SavePng((Snap), $dst)
+    $script:LastShot = $dst
+    Log "Da luu anh: $dst"
+}
+
+# ------------------------------ TELEGRAM ------------------------------
+# Anh se gui len Telegram khi script chay xong (cau hinh trong telegram.json)
+$script:Photos = New-Object System.Collections.Generic.List[object]
+function Add-Photo($caption) {
+    if ($script:LastShot) { $script:Photos.Add(@{ Path = $script:LastShot; Caption = $caption }) }
+}
+
+# Dong tong ket gan vao chu thich anh dau tien: gio xong viec, gio khoai chin, lan chay toi
+# $nextLine: ket qua tu lap lich (Plan-NextRun); khong co thi lay lich co dinh "DDTank Farm"
+function Build-Summary($sowTime, $nextLine) {
+    $lines = @("✅ Xong việc lúc: $(Get-Date -Format 'HH:mm dd/MM/yyyy')")
+    if ($sowTime) {
+        $lines += "🥔 Thu hoạch tiếp theo (khoai chín): $($sowTime.AddHours($GrowHours).ToString('HH:mm dd/MM/yyyy'))"
+    } elseif ($script:RipeAt -and $script:RipeAt -gt (Get-Date)) {
+        $lines += "🥔 Khoai chín lúc: $($script:RipeAt.ToString('HH:mm dd/MM/yyyy')) (theo lần gieo trước)"
+    } elseif ($ViewOnly -and $script:RipeAt) {
+        $lines += "🥔 Khoai chín lúc: $($script:RipeAt.ToString('HH:mm dd/MM/yyyy')) (đã tới giờ chín)"
+    } else {
+        $lines += "🥔 Thu hoạch tiếp theo: chưa xác định (lần này không gieo)"
+    }
+    if ($script:OfflineNote) { $lines += $script:OfflineNote }
+    foreach ($w in @($script:RetryNotes)) { if ($w) { $lines += $w } }
+    if ($script:NetRepairNote) { $lines += $script:NetRepairNote }
+    foreach ($w in @($script:MachineWarn)) { if ($w) { $lines += $w } }
+    if ($nextLine) { $lines += $nextLine }
+    else {
+        try {
+            $next = (Get-ScheduledTaskInfo -TaskName "DDTank Farm" -ErrorAction Stop).NextRunTime
+            if ($next) { $lines += "⏰ Lần chạy tự động tới: $($next.ToString('HH:mm dd/MM/yyyy'))" }
+        } catch {}
+    }
+    return ($lines -join "`n")
+}
+
+# Thong bao loi goc (bo cac lop boc "One or more errors occurred")
+function Err-Msg($e) {
+    if ($e -is [System.Management.Automation.ErrorRecord]) { $e = $e.Exception }
+    while ($e.InnerException) { $e = $e.InnerException }
+    if ($e -is [System.Threading.Tasks.TaskCanceledException]) { return "Het thoi gian cho (mang khong phan hoi)" }
+    return $e.Message
+}
+
+# Co Internet khong: thu ket noi cong 443 toi vai may chu, moi may toi da 5 giay
+function Test-Internet {
+    foreach ($h in $NetTestHosts) {
+        $c = New-Object System.Net.Sockets.TcpClient
+        try { if ($c.ConnectAsync($h, 443).Wait(5000) -and $c.Connected) { return $true } } catch {} finally { $c.Close() }
+    }
+    return $false
+}
+
+# Cho co mang toi da $minutes phut (0 = chi kiem tra 1 lan)
+# Mat mang: sau $NetRepairAfterSec giay tu ket noi lai Wi-Fi (netsh), them $NetRepairAfterSec giay nua ma van mat
+# thi khoi dong lai card Wi-Fi (chi khi lich chay co quyen admin). Xem ket_noi_mang.ps1.
+function Wait-Internet([double]$minutes) {
+    if (Test-Internet) { Save-WifiProfile; return $true }
+    $start = Get-Date
+    $deadline = $start.AddMinutes($minutes)
+    if ($minutes -gt 0) { Log "Chua co mang Internet -> cho toi da $minutes phut..." }
+    $level = 0
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep 15
+        if (Test-Internet) {
+            Log "Da co mang Internet"
+            if ($level -gt 0) {
+                $ok = @($script:NetRepairDone | ForEach-Object { $_ -split ', ' } | Where-Object { $_ -and $_ -notlike 'THỬ*' } | Select-Object -Unique)
+                $what = if ($ok.Count) { "đã tự $($ok -join ', ')" } else { "đã thử kết nối lại (không được, mạng tự có lại)" }
+                $script:NetRepairNote = "🔧 Mất mạng lúc $($start.ToString('HH:mm')) – $what, có mạng lại lúc $(Get-Date -Format 'HH:mm')"
+            }
+            return $true
+        }
+        $off = ((Get-Date) - $start).TotalSeconds
+        if ($AutoReconnect -and $level -lt 2 -and $off -ge $NetRepairAfterSec * ($level + 1)) {
+            $level++
+            $script:NetRepairDone += (Repair-Network -Level $level -LogFn { param($m) Log $m })
+        }
+    }
+    if ($minutes -gt 0) { Log "Van chua co mang sau $minutes phut" }
+    return $false
+}
+
+# Gui anh + chu thich len Telegram, thu toi da 3 lan.
+# Tra ve $true khi xong (gui duoc, hoac khong can / khong the gui lai), $false khi loi mang -> nen gui bu sau
+function Post-Telegram($paths, $text, [double]$netWaitMin = 2) {
+    $paths = @($paths | Where-Object { $_ -and (Test-Path $_) })
+    if (-not $paths.Count -and -not $text) { return $true }   # khong anh + khong chu: khong gui (0 anh = tin chu)
+    $cfgPath = Join-Path $Root "telegram.json"
+    if (-not (Test-Path $cfgPath)) { Log "Chua co telegram.json -> bo qua gui Telegram"; return $true }
+    $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
+    $token = [string]$cfg.bot_token; $chat = [string]$cfg.chat_id
+    if (-not $token -or -not $chat -or $token -match "DIEN_") { Log "telegram.json chua dien bot_token/chat_id -> bo qua"; return $true }
+    if (-not (Wait-Internet $netWaitMin)) { Log "Khong co mang -> chua gui duoc Telegram"; return $false }
+
+    Add-Type -AssemblyName System.Net.Http
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    for ($try = 1; $try -le 3; $try++) {
+        $client = New-Object System.Net.Http.HttpClient
+        $client.Timeout = [TimeSpan]::FromSeconds(90)
+        try {
+            # Telegram chi hien chu thich ngoai album khi CHI 1 anh co chu thich
+            # -> gop tat ca noi dung vao chu thich anh dau tien, cac anh sau de trong
+            $form = New-Object System.Net.Http.MultipartFormDataContent
+            $form.Add((New-Object System.Net.Http.StringContent($chat)), "chat_id")
+            $media = @()
+            for ($i = 0; $i -lt $paths.Count; $i++) {
+                $file = New-Object System.Net.Http.ByteArrayContent -ArgumentList (, [IO.File]::ReadAllBytes($paths[$i]))
+                $file.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse("image/png")
+                if ($paths.Count -eq 1) {
+                    $form.Add((New-Object System.Net.Http.StringContent($text)), "caption")
+                    $form.Add($file, "photo", (Split-Path $paths[$i] -Leaf))
+                } else {
+                    $form.Add($file, "p$i", (Split-Path $paths[$i] -Leaf))
+                    $m = @{ type = "photo"; media = "attach://p$i" }
+                    if ($i -eq 0) { $m.caption = $text }
+                    $media += $m
+                }
+            }
+            if ($paths.Count -eq 0) {
+                $method = "sendMessage"
+                $form.Add((New-Object System.Net.Http.StringContent($text)), "text")
+            } elseif ($paths.Count -eq 1) { $method = "sendPhoto" }
+            else {
+                $method = "sendMediaGroup"
+                $form.Add((New-Object System.Net.Http.StringContent((ConvertTo-Json @($media) -Compress))), "media")
+            }
+            # GetAwaiter().GetResult(): loi mang bao dung nguyen nhan (thay vi "null-valued expression")
+            $resp = $client.PostAsync("https://api.telegram.org/bot$token/$method", $form).GetAwaiter().GetResult()
+            $body = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+            $code = [int]$resp.StatusCode
+            if ($resp.IsSuccessStatusCode) { Log "Da gui $(if ($paths.Count) { "$($paths.Count) anh" } else { 'tin nhan' }) len Telegram"; return $true }
+            Log "Gui Telegram loi ($code): $body"
+            if ($code -lt 500 -and $code -ne 429) { return $true }   # sai token / noi dung: gui lai cung vay
+        } catch {
+            Log "Gui Telegram loi (lan $try/3): $(Err-Msg $_)"
+        } finally { $client.Dispose() }
+        if ($try -lt 3) { Start-Sleep 20 }
+    }
+    return $false
+}
+
+# Tin chua gui duoc (mat mang) -> luu lai, lan chay sau co mang thi gui bu
+$PendingDir = Join-Path $LogDir "telegram_cho_gui"
+function Save-PendingTelegram($paths, $text) {
+    New-Item -ItemType Directory -Force $PendingDir | Out-Null
+    $f = Join-Path $PendingDir "${Stamp}_$Account.json"
+    [ordered]@{ paths = @($paths); text = $text } | ConvertTo-Json | Set-Content -Path $f -Encoding UTF8
+    Log "Luu tin Telegram de gui bu khi co mang: $f"
+}
+function Send-PendingTelegram {
+    if (-not (Test-Path $PendingDir)) { return }
+    $files = @(Get-ChildItem $PendingDir -Filter "*.json" | Sort-Object Name)
+    if (-not $files.Count -or -not (Test-Internet)) { return }
+    foreach ($f in $files) {
+        try { $p = Get-Content $f.FullName -Raw -Encoding UTF8 | ConvertFrom-Json } catch { Remove-Item $f.FullName -Force; continue }
+        Log "Gui bu tin Telegram: $($f.Name)"
+        if (Post-Telegram @($p.paths) ("📨 Tin gửi trễ (lúc đó mất mạng):`n" + $p.text) 0) { Remove-Item $f.FullName -Force }
+        else { break }
+    }
+}
+
+function Send-Telegram($photos, $summary, [double]$netWaitMin = 2) {
+    $photos = @($photos | Where-Object { $_.Path -and (Test-Path $_.Path) })
+    if (-not $photos.Count) { return }
+    $text = "🚜 DDTank [$Account] $(Get-Date -Format 'dd/MM HH:mm')`n" + (($photos | ForEach-Object { $_.Caption }) -join "`n")
+    if ($summary) { $text += "`n`n$summary" }
+    $paths = @($photos | ForEach-Object { $_.Path })
+    Log ("Telegram <- {0}`n    {1}" -f (($paths | ForEach-Object { Split-Path $_ -Leaf }) -join ", "), ($text -replace "`n", "`n    "))
+    if (-not (Post-Telegram $paths $text $netWaitMin)) { Save-PendingTelegram $paths $text }
+}
+
+# Noi dung tung anh (dong tieu de DDTank [tai khoan] gio duoc them 1 lan khi gui)
+function Caption($text) { $text }
+
+$script:StepNo = 0
+# Luu anh chup gan nhat (khong chup moi) khi bat -StepShots
+function Step($name) {
+    if (-not $StepShots) { return }
+    $script:StepNo++
+    $dst = Join-Path $LogDir ("{0}_step{1:D2}_{2}.png" -f $Stamp, $script:StepNo, $name)
+    [Vision]::SavePng($Shot, $dst)
+    Log "  [step $script:StepNo] $name"
+}
+
+
+# Tim template tren anh chup moi nhat. $region = @(x,y,w,h) hoac $null (ca man hinh)
+function Find($name, $maxScore, $region = $null) {
+    if (-not $region) { $region = @(0,0,0,0) }
+    $r = [Vision]::FindAll($Shot, (Join-Path $Tpl "$name.png"), $maxScore,
+                           $region[0], $region[1], $region[2], $region[3])
+    return ,@($r)
+}
+
+# Chup lien tuc cho toi khi thay template (hoac het thoi gian)
+function WaitFor($name, $maxScore, $timeoutSec, $region = $null) {
+    $deadline = (Get-Date).AddSeconds($timeoutSec)
+    do {
+        Snap | Out-Null
+        $r = Find $name $maxScore $region
+        if ($r.Count) { return $r[0] }
+        Start-Sleep -Milliseconds 300
+    } while ((Get-Date) -lt $deadline)
+    return $null
+}
+
+# Giu va keo qua nhieu diem (motionevent DOWN/MOVE/UP trong 1 lenh shell)
+function Drag-Path($points) {
+    # $HumanLike: lech moi diem +-3px (o dat rong ~90px), giu 0.5-0.8s truoc khi keo, buoc keo 34-46px
+    if ($HumanLike) { $points = @($points | ForEach-Object { , @(([int]$_[0] + (Rnd -3 3)), ([int]$_[1] + (Rnd -3 3))) }) }
+    $hold = if ($HumanLike) { ((Rnd 50 80) / 100.0).ToString('0.00', [Globalization.CultureInfo]::InvariantCulture) } else { '0.6' }
+    $stepPx = if ($HumanLike) { Rnd 34 46 } else { 40 }
+    $cmds = New-Object System.Collections.Generic.List[string]
+    $cmds.Add("input motionevent DOWN $($points[0][0]) $($points[0][1])")
+    $cmds.Add("sleep $hold")
+    for ($i = 1; $i -lt $points.Count; $i++) {
+        $a = $points[$i-1]; $b = $points[$i]
+        $dist  = [Math]::Sqrt([Math]::Pow($b[0]-$a[0],2) + [Math]::Pow($b[1]-$a[1],2))
+        $steps = [Math]::Max(1, [int]($dist / $stepPx))
+        for ($k = 1; $k -le $steps; $k++) {
+            $x = [int]($a[0] + ($b[0]-$a[0]) * $k / $steps)
+            $y = [int]($a[1] + ($b[1]-$a[1]) * $k / $steps)
+            $cmds.Add("input motionevent MOVE $x $y")
+        }
+    }
+    $last = $points[$points.Count-1]
+    $cmds.Add("input motionevent UP $($last[0]) $($last[1])")
+    & $Adb -s $script:Serial shell ($cmds -join "; ")
+}
+
+# ------------------------------ GAME ---------------------------------
+# ----------------------- Giao dien Android (uiautomator) ---------------------
+# Hop dang nhap 7Road la giao dien Android goc -> doc duoc id/chu chinh xac
+function Get-UiNodes {
+    & $Adb -s $script:Serial shell uiautomator dump /sdcard/ddt_ui.xml | Out-Null
+    $raw = (& $Adb -s $script:Serial shell cat /sdcard/ddt_ui.xml) -join ""
+    $nodes = @()
+    try { $xml = [xml]$raw } catch { return ,$nodes }
+    foreach ($n in $xml.SelectNodes("//node")) {
+        if ($n.bounds -match '\[(\d+),(\d+)\]\[(\d+),(\d+)\]') {
+            $nodes += [pscustomobject]@{
+                Id = ($n.'resource-id' -replace '^.*:id/', ''); Text = $n.text
+                X1 = [int]$Matches[1]; Y1 = [int]$Matches[2]; X2 = [int]$Matches[3]; Y2 = [int]$Matches[4]
+                X = [int](([int]$Matches[1] + [int]$Matches[3]) / 2); Y = [int](([int]$Matches[2] + [int]$Matches[4]) / 2)
+            }
+        }
+    }
+    return ,$nodes
+}
+
+function Find-Ui($nodes, $id, $text = $null) {
+    $nodes | Where-Object { $_.Id -eq $id -and ($null -eq $text -or $_.Text -eq $text) } | Select-Object -First 1
+}
+
+# Cho toi khi thay node co id (va chu) mong muon
+function WaitUi($id, $text, $timeoutSec) {
+    $deadline = (Get-Date).AddSeconds($timeoutSec)
+    do {
+        $n = Find-Ui (Get-UiNodes) $id $text
+        if ($n) { return $n }
+        Nap 1
+    } while ((Get-Date) -lt $deadline)
+    return $null
+}
+
+# Man hinh "Dang nhap" -> 7Road Login -> chon tai khoan da luu -> Login
+function Login-7Road {
+    if (-not $Account) { Save-Shot "loi_thieu_tai_khoan"; throw "Game đang đợi đăng nhập nhưng chưa truyền -Account <tên tài khoản>" }
+    Log "Dang nhap 7Road bang tai khoan '$Account'"
+    # Hop chon cach dang nhap (co the bo qua neu app vao thang form 7Road)
+    $deadline = (Get-Date).AddSeconds(15)
+    $form = $null
+    while (-not $form -and (Get-Date) -lt $deadline) {
+        $ui = Get-UiNodes
+        $form = Find-Ui $ui "txt_account"
+        if ($form) { break }
+        # Game tu dang nhap bang phien truoc (vd vua dang nhap may phut truoc) -> khong hien form, nhay thang toi "Vao game"
+        Snap | Out-Null
+        if ((Find "btn_vaogame" 15).Count) {
+            Log "Game tu dang nhap bang phien truoc (khong hien form 7Road) -> bam Vao game"
+            Step "tu_dang_nhap"
+            return
+        }
+        $m = Find-Ui $ui "txt_login_des" "7Road Login"
+        if ($m) { Log "Bam 7Road Login"; Tap $m.X $m.Y; Nap 2 }
+        else { Nap 1 }
+    }
+    if (-not $form) { Save-Shot "loi_7road"; throw "Không mở được form đăng nhập 7Road" }
+    Snap | Out-Null; Step "form_7road"
+
+    $ui = Get-UiNodes
+    if ((Find-Ui $ui "txt_account").Text -ne $Account) {
+        # Mo danh sach tai khoan da luu, tim dung ten, cuon xuong neu chua thay
+        $sel = Find-Ui $ui "view_acc_select"
+        Tap $sel.X $sel.Y; Nap 1.5
+        $picked = $false; $lastNames = ""
+        for ($page = 0; $page -lt 15 -and -not $picked; $page++) {
+            $ui = Get-UiNodes
+            $names = @($ui | Where-Object { $_.Id -eq "txt_name" })
+            $hit = $names | Where-Object { $_.Text -eq $Account } | Select-Object -First 1
+            if ($hit) {
+                # bam vao TEN (txt_name), khong bam nut X (btn_close = xoa tai khoan da luu)
+                Log "Chon tai khoan '$Account'"; Tap $hit.X $hit.Y; Nap 1.5; $picked = $true; break
+            }
+            $now = ($names | ForEach-Object { $_.Text }) -join "|"
+            if (-not $names.Count -or $now -eq $lastNames) { break }   # het danh sach
+            $lastNames = $now
+            $list = Find-Ui $ui "list_select"
+            Log "Chua thay '$Account', cuon danh sach..."
+            Swipe $list.X ($list.Y2 - 15) $list.X ($list.Y1 + 15) 500
+            Nap 1.2
+        }
+        if (-not $picked) { Save-Shot "loi_khong_thay_tai_khoan"; throw "Không thấy tài khoản '$Account' trong danh sách đã lưu" }
+    }
+
+    $ui = Get-UiNodes
+    $acc = Find-Ui $ui "txt_account"; $pass = Find-Ui $ui "txt_password"
+    if ($acc.Text -ne $Account) { Save-Shot "loi_chon_tai_khoan"; throw "Ô tài khoản đang là '$($acc.Text)', không phải '$Account'" }
+    if (-not $pass.Text -or $pass.Text -like "Password*") {
+        Save-Shot "loi_chua_luu_mat_khau"; throw "Tài khoản '$Account' chưa được app lưu mật khẩu – hãy đăng nhập tay 1 lần"
+    }
+    Snap | Out-Null; Step "chon_tai_khoan"
+    $btn = Find-Ui $ui "btn_login"
+    Log "Bam Login"; Tap $btn.X $btn.Y
+    Nap 5
+}
+
+function Enter-Game {
+    Log "Mo app DDTank..."
+    & $Manager control -v $script:Index app launch -pkg $Package | Out-Null
+    $deadline = (Get-Date).AddMinutes(3)   # x3 lan thu (Retry-Step)
+    $idle = 0
+    while ((Get-Date) -lt $deadline) {
+        Nap 1
+        Snap | Out-Null
+        if ((Find "btn_friends" 15).Count -and -not (Find "popup_close" 12).Count) {
+            Log "Da vao sanh chinh"
+            Step "sanh_chinh"
+            return
+        }
+        # Chua dang nhap: man hinh co nut "Dang nhap"
+        $dn = Find "btn_dangnhap" 15
+        if ($dn.Count) {
+            Step "chua_dang_nhap"
+            $chk = Find "chk_unticked" 8 @(380,760,160,100)
+            if ($chk.Count) { Log "Tick o dong y dieu khoan"; Tap $chk[0].X $chk[0].Y 2; Nap 1 }   # o tick nho: lech toi da 2px
+            Log "Bam Dang nhap"; Tap $dn[0].X $dn[0].Y
+            Nap 2
+            Login-7Road
+            continue
+        }
+        $vg = Find "btn_vaogame" 15
+        if ($vg.Count) {
+            Step "dang_nhap"
+            $chk = Find "chk_unticked" 8 @(380,760,160,100)
+            if ($chk.Count) { Log "Tick o dong y dieu khoan"; Tap $chk[0].X $chk[0].Y 2; Nap 1 }   # o tick nho: lech toi da 2px
+            Log "Bam Vao game"; Tap $vg[0].X $vg[0].Y
+            Nap 2
+            continue
+        }
+        # Popup quang cao / su kien (tuy tai khoan): bam nut X do
+        $x = Find "popup_close" 12
+        if ($x.Count) { Step "popup"; Log "Dong popup tai ($($x[0].X),$($x[0].Y))"; Tap $x[0].X $x[0].Y; continue }
+
+        # Khong nhan ra man hinh nao: co the dang mo san hop dang nhap 7Road (giao dien Android)
+        $idle++
+        if ($idle % 3 -eq 0) {
+            $ui = Get-UiNodes
+            if ((Find-Ui $ui "txt_account") -or (Find-Ui $ui "txt_login_des" "7Road Login")) {
+                Login-7Road
+            }
+        }
+    }
+    Save-Shot "loi_vao_game"
+    throw "Không vào được sảnh chính sau 3 phút"
+}
+
+function Open-Farm {
+    # Sanh vua hien co the con dang tai -> lan bam dau co the bi bo qua: thu toi da 3 lan
+    Nap 1.5
+    $farm = $null
+    for ($try = 1; $try -le 4 -and -not $farm; $try++) {
+        Snap | Out-Null
+        # Popup hien muon sau khi da vao sanh (vd "Bao danh moi ngay" lan dang nhap dau ngay) che nut Ban be -> dong truoc
+        for ($k = 0; $k -lt 3; $k++) {
+            $x = Find "popup_close" 12
+            if (-not $x.Count) { break }
+            Step "popup_sanh"; Log "Dong popup o sanh tai ($($x[0].X),$($x[0].Y))"; Tap $x[0].X $x[0].Y; Nap 1.5
+            Snap | Out-Null
+        }
+        $f = Find "btn_friends" 15
+        if ($f.Count) { Log "Bam Ban be (lan $try)"; Tap $f[0].X $f[0].Y }
+        $farm = WaitFor "btn_farm" 20 6
+    }
+    if (-not $farm) { Save-Shot "loi_ban_be"; throw "Không thấy nút nông trại trong bảng Bạn bè" }
+    Step "ban_be"
+    Log "Bam nut Nong trai"; Tap $farm.X $farm.Y
+    $sow = WaitFor "btn_sow" 15 30
+    if (-not $sow) { Save-Shot "loi_nong_trai"; throw "Không vào được nông trại" }
+    Log "Da vao nong trai"
+    Nap 1
+    Snap | Out-Null; Step "nong_trai"
+    # Diem vao nong trai co dinh, ruong bi khuat o mep tren man hinh.
+    # Cho nhan vat di toi bai co ngay duoi goc phai ruong -> camera dua ca ruong vao khung hinh
+    Log "Di toi canh ruong"
+    Tap $FarmWalkPoint[0] $FarmWalkPoint[1]
+    Nap 4
+    Snap | Out-Null; Step "canh_ruong"
+}
+
+# Thu hoach: hang truoc tu phai sang trai, sau do hang sau tu trai sang phai
+function Harvest-All {
+    $sawTwoRows = $false; $movedToBackRow = $false; $miss = 0; $taps = 0
+    for ($i = 0; $i -lt 50 -and $miss -lt 3; $i++) {
+        Snap | Out-Null
+        # popup "Co thuong": diem khop ~15-26, man hinh thuong >= 58
+        $c = Find "continue" 40 @(1000,700,600,200)
+        if ($c.Count) { Step "phan_thuong"; Log "Dong popup Co thuong"; Tap $c[0].X $c[0].Y; Nap 1; $miss = 0; continue }
+
+        $hands = Find "hand" 25
+        if (-not $hands.Count) { $miss++; Nap 1; continue }
+        $miss = 0
+
+        # Gom cac ban tay thanh hang (truc isometric): V = do sau hang, U = vi tri doc hang
+        $items = $hands | ForEach-Object {
+            [pscustomobject]@{ X = $_.X; Y = $_.Y; V = $_.Y - 0.51 * $_.X; U = 0.89 * $_.X + 0.45 * $_.Y }
+        } | Sort-Object V -Descending
+        $rows = New-Object System.Collections.ArrayList
+        foreach ($it in $items) {
+            if ($rows.Count -and ($rows[$rows.Count-1][0].V - $it.V) -lt 45) { $rows[$rows.Count-1].Add($it) | Out-Null }
+            else { $l = New-Object System.Collections.ArrayList; $l.Add($it) | Out-Null; $rows.Add($l) | Out-Null }
+        }
+        if ($rows.Count -ge 2) { $sawTwoRows = $true }
+        $row = $rows[0]
+        if ($rows.Count -eq 1 -and $sawTwoRows) {
+            $t = $row | Sort-Object U | Select-Object -First 1      # hang sau: trai -> phai
+            if (-not $movedToBackRow) {
+                # Xong hang truoc: di ra ngoai ruong (phia tren-trai o dau hang sau) roi moi thu hang sau
+                $movedToBackRow = $true
+                $bx = [Math]::Max(10, $t.X + $BackRowWalkOffset[0])
+                $by = [Math]::Max(10, $t.Y + $BackRowWalkOffset[1])
+                Step "chuyen_hang_x$([int]$bx)_y$([int]$by)"
+                Log "Xong hang truoc, di ra ($([int]$bx),$([int]$by)) truoc khi thu hang sau"
+                Tap $bx $by
+                Nap 3.5
+                continue   # chup lai vi camera da di chuyen
+            }
+        } else {
+            $t = $row | Sort-Object U -Descending | Select-Object -First 1  # hang truoc: phai -> trai
+        }
+        $taps++
+        Log ("Thu hoach o ({0},{1}) - con {2} o chin, {3} hang" -f $t.X, $t.Y, $hands.Count, $rows.Count)
+        Step ("thu_hoach_{0}_x{1}_y{2}" -f $taps, $t.X, $t.Y)
+        Tap $t.X $t.Y
+        # Cho popup "Nhan de tiep tuc", bam no roi moi quet tiep
+        $c = WaitFor "continue" 40 8 @(1000,700,600,200)
+        if ($c) {
+            Step "phan_thuong"
+            Log "Bam Nhan de tiep tuc"
+            Tap $c.X $c.Y
+            Nap 1
+        } else {
+            Log "Khong thay popup thuong (co the nhan vat chi di toi o dat)"
+        }
+    }
+    Log "Thu hoach xong ($taps lan bam)"
+    return $taps
+}
+
+# Lich chay 8 tieng ma khoai cung can dung 8 tieng -> co the toi som vai phut.
+# Chua co o chin thi cho them toi da $WaitRipeMinutes phut, 30 giay kiem tra 1 lan.
+function Wait-Ripe {
+    if ($WaitRipeMinutes -le 0) { return $false }
+    Log "Chua co o chin, cho toi da $WaitRipeMinutes phut..."
+    $start = Get-Date
+    $deadline = $start.AddMinutes($WaitRipeMinutes)
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep 30
+        Snap | Out-Null
+        if ((Find "hand" 25).Count) {
+            $script:WaitedRipeMin = [math]::Max(1, [int][math]::Round(((Get-Date) - $start).TotalMinutes))
+            Log "Cay da chin (cho $script:WaitedRipeMin phut)"
+            return $true
+        }
+    }
+    Log "Het $WaitRipeMinutes phut van chua chin"
+    $script:WaitedRipeMin = $WaitRipeMinutes
+    return $false
+}
+
+function Find-FarmSign {
+    for ($try = 0; $try -lt 4; $try++) {
+        Snap | Out-Null
+        $c = Find "continue" 40 @(1000,700,600,200)
+        if ($c.Count) { Log "Dong popup Co thuong"; Tap $c[0].X $c[0].Y; Nap 1.5; continue }
+        $s = Find "farm_sign" 20
+        if ($s.Count) { return $s[0] }
+        Nap 1
+    }
+    return $null
+}
+
+# Dem so o dang co cay: co thanh thoi gian (cay dang lon) hoac mam cay (vua gieo).
+# Ruong trong: khong o nao co. Thanh thoi gian: diem khop 0-16 khi cay dang lon, ~30 khi vua gieo, o trong >= 35.
+function Count-Planted($sign) {
+    Snap | Out-Null
+    $n = 0
+    foreach ($o in $PlotOffsets) {
+        $x = $sign.X + $o[0]; $y = $sign.Y + $o[1]
+        if ((Find "plot_timer" 25 @(($x-90), ($y-90), 110, 80)).Count -or
+            (Find "sprout" 18 @(($x-70), ($y-80), 140, 120)).Count) { $n++ }
+    }
+    return $n
+}
+
+# Dem thanh thoi gian tren CA man hinh, khong can bien go (cay lon co the che mat bien go).
+# Mau plot_timer nho (10x7) khop nhieu diem lien nhau tren 1 thanh -> gom diem cung hang Y, cach nhau < 30px thanh 1 thanh.
+# Diem khop that: 1-18 (ke ca thanh bi chu chat che 1 phan); ruong trong / sau thu hoach: 0 diem.
+function Count-TimerBars {
+    Snap | Out-Null
+    $pts = Find "plot_timer" 22 | Sort-Object Y, X
+    $bars = New-Object System.Collections.ArrayList
+    foreach ($p in $pts) {
+        $b = $bars | Where-Object { [Math]::Abs($_.Y - $p.Y) -le 12 -and ($p.X - $_.MaxX) -lt 30 -and ($p.X - $_.MaxX) -ge -30 } | Select-Object -First 1
+        if ($b) { $b.MaxX = [Math]::Max($b.MaxX, $p.X) }
+        else { [void]$bars.Add([pscustomobject]@{ Y = $p.Y; MaxX = $p.X }) }
+    }
+    return [Math]::Min($bars.Count, $PlotCount)
+}
+
+function Sow-Potatoes($harvested) {
+    # Khong thu hoach duoc o nao va ruong khong trong -> cay dang lon, khong gieo
+    if ($harvested -eq 0 -and -not $script:FieldEmpty) {
+        Log "Khong co o chin, cay dang lon -> bo qua gieo hat"
+        Save-Shot "dang_trong"
+        $waitNote = if ($script:WaitedRipeMin) { " (đã chờ $($script:WaitedRipeMin) phút)" } else { "" }
+        Add-Photo (Caption "🌱 Chưa có ô chín (cây đang lớn)$waitNote – không thu hoạch, không gieo")
+        return $null
+    }
+    $sign = Find-FarmSign
+    if (-not $sign) { Save-Shot "loi_tim_ruong"; throw "Không tìm thấy ruộng (biển gỗ)" }
+    Log "Bien go ruong tai ($($sign.X),$($sign.Y))"
+    Step "ruong_trong"
+
+    Snap | Out-Null
+    $b = Find "btn_sow" 15
+    Log "Bam Gieo hat"; Tap $b[0].X $b[0].Y
+    $title = WaitFor "seed_panel_title" 15 10
+    if (-not $title) { Save-Shot "loi_bang_hat"; throw "Không mở được bảng hạt giống" }
+
+    # Tim hat khoai tay; neu chua thay thi cuon danh sach xuong
+    $seed = $null
+    $region = @(($title.X - 220), ($title.Y + 50), 440, 380)
+    for ($scroll = 0; $scroll -le 6 -and -not $seed; $scroll++) {
+        Snap | Out-Null
+        $r = Find "seed_potato" 12 $region
+        if ($r.Count) { $seed = $r[0]; break }
+        Log "Chua thay hat khoai tay, cuon danh sach..."
+        Swipe $title.X ($title.Y + 330) $title.X ($title.Y + 150) 600
+        Nap 1.5
+    }
+    if (-not $seed) { Save-Shot "loi_khong_co_hat_khoai"; throw "Không tìm thấy hạt khoai tây" }
+    Log "Hat khoai tay tai ($($seed.X),$($seed.Y))"
+    Step "bang_hat"
+
+    $pts = @(, @($seed.X, $seed.Y))
+    foreach ($o in $PlotOffsets) {
+        $x = [Math]::Min(1590, [Math]::Max(10, $sign.X + $o[0]))
+        $y = [Math]::Min(890,  [Math]::Max(10, $sign.Y + $o[1]))
+        $pts += , @($x, $y)
+    }
+    Log "Keo hat qua $PlotCount o dat..."
+    Drag-Path $pts
+
+    $ok = WaitFor "btn_confirm" 12 6
+    if ($ok) { Step "xac_nhan"; Log "Xac nhan gieo"; Tap $ok.X $ok.Y; $script:SowTime = Get-Date; Nap 3 }
+    else { Log "Khong thay hop xac nhan (co the o dat khong trong)" }
+    return $sign
+}
+
+function Verify-Sown($sign) {
+    Snap | Out-Null
+    $found = 0
+    foreach ($o in $PlotOffsets) {
+        $x = $sign.X + $o[0]; $y = $sign.Y + $o[1]
+        if ((Find "sprout" 18 @(($x-70), ($y-80), 140, 120)).Count) { $found++ }
+    }
+    Save-Shot "ket_qua"
+    # nhan vat / ten nhan vat co the che 1-2 o
+    $script:Sprouts = $found
+    if ($found -ge ($PlotCount - 2)) {
+        Log "KIEM TRA OK: thay mam cay o $found/$PlotCount o"
+        Add-Photo (Caption "2/2 Sau khi trồng khoai: OK – thấy mầm cây ở $found/$PlotCount ô")
+    } else {
+        Log "CANH BAO: chi thay mam cay o $found/$PlotCount o - xem anh ket_qua"
+        Add-Photo (Caption "2/2 Sau khi trồng khoai: ⚠️ CẢNH BÁO – chỉ thấy mầm cây ở $found/$PlotCount ô")
+    }
+}
+
+# --------------------------- TU LAP LICH -----------------------------
+# state\<tai khoan>.json: { ripe = gio khoai chin (lan gieo gan nhat), retries = so lan thu lai lien tiep }
+$StateDir = Join-Path $Root "state"
+$script:RipeAt = $null
+
+function Get-FarmState {
+    $f = Join-Path $StateDir "$Account.json"
+    if (Test-Path $f) { try { return (Get-Content $f -Raw | ConvertFrom-Json) } catch {} }
+    return $null
+}
+
+function Save-FarmState($ripe, [int]$retries) {
+    New-Item -ItemType Directory -Force $StateDir | Out-Null
+    $o = [ordered]@{ ripe = $(if ($ripe) { $ripe.ToString('yyyy-MM-dd HH:mm:ss') } else { $null }); retries = $retries }
+    $o | ConvertTo-Json | Set-Content -Path (Join-Path $StateDir "$Account.json") -Encoding UTF8
+}
+
+# Task "DDTank Farm - <tai khoan>" chay 1 lan luc $at (ghi de neu da co)
+function Register-NextRun([datetime]$at) {
+    $action = New-ScheduledTaskAction -Execute "powershell.exe" `
+        -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$(Join-Path $Root 'ddtank_farm.ps1')`" -Account $Account" `
+        -WorkingDirectory $Root
+    $trigger = New-ScheduledTaskTrigger -Once -At $at
+    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+        -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 45)
+    $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
+    Register-ScheduledTask -TaskName "DDTank Farm - $Account" -Action $action -Trigger $trigger -Settings $settings `
+        -Principal $principal -Description "Tu lap lich: thu hoach + trong khoai cho $Account" -Force | Out-Null
+}
+
+# Thoi diem $t (gio may) co roi vao gio bao tri game khong.
+# Co -> tra ve luc het bao tri (+ $MaintAfterMin, theo gio may); khong -> $null
+function Get-MaintenanceEnd([datetime]$t) {
+    $tz = [TimeZoneInfo]::FindSystemTimeZoneById($MaintTimeZone)
+    $vn = [TimeZoneInfo]::ConvertTime($t, [TimeZoneInfo]::Local, $tz)
+    foreach ($w in $MaintenanceWindows) {
+        if ($vn.DayOfWeek -ne [DayOfWeek]$w.Day) { continue }
+        $s = $vn.Date.Add([TimeSpan]::Parse($w.Start)).AddMinutes(-$MaintBeforeMin)
+        $e = $vn.Date.Add([TimeSpan]::Parse($w.End)).AddMinutes($MaintAfterMin)
+        if ($vn -ge $s -and $vn -lt $e) {
+            return [TimeZoneInfo]::ConvertTime([datetime]::SpecifyKind($e, 'Unspecified'), $tz, [TimeZoneInfo]::Local)
+        }
+    }
+    return $null
+}
+function Maint-Text {
+    ($MaintenanceWindows | ForEach-Object { "$(@{Monday='thứ 2';Tuesday='thứ 3';Wednesday='thứ 4';Thursday='thứ 5';Friday='thứ 6';Saturday='thứ 7';Sunday='CN'}[$_.Day]) $($_.Start)–$($_.End)" }) -join ', '
+}
+
+# Mat mang: state\<tai khoan>.offline = "gio bat dau mat mang|so lan thu" (xoa khi co mang lai)
+function Mark-Offline {
+    $f = Join-Path $StateDir "$Account.offline"
+    $since = Get-Date; $n = 0
+    if (Test-Path $f) {
+        $a = (Get-Content $f -Raw).Trim() -split '\|'
+        try { $since = [datetime]::ParseExact($a[0], 'yyyy-MM-dd HH:mm:ss', $null); $n = [int]$a[1] } catch {}
+    }
+    $n++
+    New-Item -ItemType Directory -Force $StateDir | Out-Null
+    Set-Content -Path $f -Value "$($since.ToString('yyyy-MM-dd HH:mm:ss'))|$n"
+    Log "Mat mang tu $($since.ToString('HH:mm dd/MM')), lan thu $n"
+}
+# Co mang lai: tra ve 1 dong bao tren Telegram ($null neu truoc do khong mat mang)
+function Pop-OfflineNote {
+    $f = Join-Path $StateDir "$Account.offline"
+    if (-not (Test-Path $f)) { return $null }
+    $a = (Get-Content $f -Raw).Trim() -split '\|'
+    Remove-Item $f -Force
+    try { $since = [datetime]::ParseExact($a[0], 'yyyy-MM-dd HH:mm:ss', $null); $n = [int]$a[1] } catch { return $null }
+    Log "Co mang lai (mat tu $($since.ToString('HH:mm dd/MM')), da thu $n lan)"
+    return "📵 Mất mạng từ $($since.ToString('HH:mm dd/MM')) đến $(Get-Date -Format 'HH:mm dd/MM') – đã thử lại $n lần (không tính là lỗi)"
+}
+
+# $outcome: sown (vua gieo) | growing (cay dang lon / khong gieo) | error (loi) | busy (dang co lan chay khac)
+#           | offline (mat mang) | maintenance (dang gio bao tri game) | paused (dang /tamdung)
+# Tra ve 1 dong mo ta de gan vao tin Telegram ($null neu khong tu lap lich)
+function Plan-NextRun([string]$outcome) {
+    if (-not $AutoSchedule -or -not $Account) { return $null }
+    if (Test-Path (Join-Path $StateDir "$Account.off")) {
+        Log "Tu lap lich dang tat cho $Account (state\$Account.off)"
+        return "⏸️ Tự lập lịch đang tắt cho $Account (bật lại: /chay $Account)"
+    }
+    $st = Get-FarmState
+    $retries = if ($st -and $st.retries) { [int]$st.retries } else { 0 }
+    $ripe = $null
+    if ($st -and $st.ripe) { $ripe = [datetime]::ParseExact($st.ripe, 'yyyy-MM-dd HH:mm:ss', $null) }
+    $now = Get-Date; $at = $null; $why = ""
+
+    switch ($outcome) {
+        'sown' {
+            $ripe = $script:SowTime.AddHours($GrowHours); $retries = 0
+            $at = $ripe.AddMinutes($AutoDelayMinutes); $why = "khoai chín $($ripe.ToString('HH:mm'))"
+        }
+        'growing' {
+            if ($ripe -and $ripe -gt $now) {
+                $retries = 0; $at = $ripe.AddMinutes($AutoDelayMinutes); $why = "khoai chín $($ripe.ToString('HH:mm')), theo lần gieo trước"
+            } elseif ($ripe -and $retries -lt $MaxRetries) {
+                $retries++; $at = $now.AddMinutes($RetryMinutes); $why = "khoai chưa chín, thử lại lần $retries/$MaxRetries"
+            } else {
+                Save-FarmState $ripe $retries
+                Log "Khong biet gio khoai chin -> khong tu lap lich"
+                return "⚠️ Không biết giờ khoai chín → chưa tự lập lịch. Gửi /chay $Account khi khoai chín."
+            }
+        }
+        'busy' { $at = $now.AddMinutes($RetryMinutes); $why = "đang có lượt chạy khác, thử lại" }
+        'offline' { $at = $now.AddMinutes($OfflineRetryMinutes); $why = "mất mạng, thử lại – không tính là lỗi" }
+        'paused' {
+            $pu = Get-PauseUntil
+            $at = if ($pu) { $pu.AddMinutes(1) } else { $now.AddMinutes($RetryMinutes) }
+            $why = "đang tạm dừng (/tamdung), chạy lại khi hết tạm dừng"
+        }
+        'maintenance' {
+            $at = Get-MaintenanceEnd $now
+            if (-not $at) { $at = $now.AddMinutes($ErrorRetryMinutes) }
+            $why = "game bảo trì, chạy lại sau giờ bảo trì – không tính là lỗi"
+        }
+        default {
+            if ($retries -lt $MaxRetries) {
+                $retries++; $at = $now.AddMinutes($ErrorRetryMinutes); $why = "bị lỗi, thử lại lần $retries/$MaxRetries"
+            } else {
+                Save-FarmState $ripe $retries
+                Log "Loi $MaxRetries lan lien tiep -> dung tu lap lich"
+                return "⛔ Lỗi $MaxRetries lần liên tiếp → dừng tự lập lịch. Sửa xong gửi /chay $Account để chạy lại."
+            }
+        }
+    }
+    # Gio hen da qua / qua sat (vd $AutoDelayMinutes am ma gio chin chi con vai phut) -> hen 2 phut nua
+    if ($at -lt $now.AddMinutes(2)) { $at = $now.AddMinutes(2) }
+    # Gio hen roi vao gio bao tri game -> doi sang sau gio bao tri
+    $mEnd = Get-MaintenanceEnd $at
+    if ($mEnd) {
+        Log "Gio hen $($at.ToString('HH:mm dd/MM')) roi vao gio bao tri game -> doi sang $($mEnd.ToString('HH:mm dd/MM'))"
+        if ($outcome -ne 'maintenance') { $why += "; dời qua giờ bảo trì game $(Maint-Text)" }
+        $at = $mEnd
+    }
+    $script:RipeAt = $ripe
+    Save-FarmState $ripe $retries
+    try {
+        Register-NextRun $at
+        Log "Tu lap lich '$Account' luc $($at.ToString('HH:mm dd/MM/yyyy')) ($why)"
+        return "⏰ Đã tự lập lịch lần tới: $($at.ToString('HH:mm dd/MM/yyyy')) ($why)"
+    } catch {
+        Log "Tu lap lich loi: $($_.Exception.Message)"
+        return "⚠️ Tự lập lịch lỗi: $($_.Exception.Message)"
+    }
+}
+
+# --------------------------- MAY TINH / LOG ---------------------------
+# Kiem tra RAM trong + o dia truoc khi mo MuMu. Tra ve cac dong canh bao (rong = on)
+function Check-Machine {
+    $warn = @()
+    try {
+        $avail = [int](Get-CimInstance Win32_PerfFormattedData_PerfOS_Memory).AvailableMBytes
+        $total = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 1)
+        Log "RAM trong: $avail MB / $total GB"
+        if ($avail -lt $MinFreeRamMB) {
+            $top = Get-Process | Group-Object ProcessName | ForEach-Object {
+                [pscustomobject]@{ N = $_.Name; MB = [math]::Round(($_.Group | Measure-Object WorkingSet64 -Sum).Sum / 1MB) } } |
+                Sort-Object MB -Descending | Select-Object -First 3 | ForEach-Object { "$($_.N) $([math]::Round($_.MB/1024,1)) GB" }
+            $warn += "⚠️ Máy sắp hết RAM: còn $([math]::Round($avail/1024,1)) GB trống / $total GB (dùng nhiều: $($top -join ', ')). Nên đóng bớt để MuMu chạy ổn định."
+        }
+    } catch { Log "Khong doc duoc RAM: $($_.Exception.Message)" }
+    $drives = @('C', (Split-Path $Root -Qualifier).TrimEnd(':')) | Select-Object -Unique
+    foreach ($d in $drives) {
+        try {
+            $free = [math]::Round((Get-PSDrive $d -ErrorAction Stop).Free / 1GB, 1)
+            if ($free -lt $MinFreeDiskGB) { $warn += "⚠️ Ổ ${d}: chỉ còn $free GB trống." }
+        } catch {}
+    }
+    foreach ($w in $warn) { Log "CANH BAO MAY: $w" }
+    return ,$warn
+}
+
+# Xoa log + anh cua cac lan chay cu hon $KeepLogDays ngay (khong dung bot.log, bot_offset, hang doi Telegram)
+function Clean-OldLogs {
+    if ($KeepLogDays -le 0) { return }
+    $cut = (Get-Date).AddDays(-$KeepLogDays)
+    $old = @(Get-ChildItem $LogDir -File -ErrorAction SilentlyContinue | Where-Object {
+        $_.LastWriteTime -lt $cut -and ($_.Name -like 'run_*.log' -or $_.Name -match '^\d{8}_\d{6}_.*\.png$') })
+    if (-not $old.Count) { return }
+    $mb = [math]::Round(($old | Measure-Object Length -Sum).Sum / 1MB, 1)
+    $old | Remove-Item -Force -ErrorAction SilentlyContinue
+    Log "Don log: xoa $($old.Count) file cu hon $KeepLogDays ngay ($mb MB)"
+}
+
+# /tamdung: state\_tamdung.txt = "yyyy-MM-dd HH:mm:ss" (het han thi tu xoa). Tra ve gio het tam dung hoac $null
+function Get-PauseUntil {
+    $f = Join-Path $StateDir "_tamdung.txt"
+    if (-not (Test-Path $f)) { return $null }
+    try { $u = [datetime]::ParseExact((Get-Content $f -Raw).Trim(), 'yyyy-MM-dd HH:mm:ss', $null) } catch { return $null }
+    if ($u -le (Get-Date)) { Remove-Item $f -Force -ErrorAction SilentlyContinue; return $null }
+    return $u
+}
+
+# /xemruong: chup ruong, doan trang thai, khong bam gi them
+function View-Farm {
+    $hands = (Find "hand" 25).Count
+    # Uu tien dem thanh thoi gian (cay lon che mat bien go); khong thay thanh nao moi can bien go
+    $planted = Count-TimerBars
+    if ($planted -eq 0) {
+        $s = Find-FarmSign
+        $planted = if ($s) { Count-Planted $s } else { -1 }
+    }
+    $state = if ($hands) { "có ô đã chín (thấy $hands bàn tay thu hoạch)" }
+             elseif ($planted -gt 0) { "cây đang lớn ở $planted/$PlotCount ô" }
+             elseif ($planted -eq 0) { "ruộng trống" }
+             else { "không xác định được (không thấy thanh thời gian lẫn biển gỗ cạnh ruộng)" }
+    Log "Xem ruong: $state"
+    Save-Shot "xem_ruong"
+    Add-Photo (Caption "👀 Xem ruộng: $state")
+}
+
+# Lich su moi lan chay (cho lenh /thongke): state\lich_su.jsonl, moi dong 1 lan chay
+function Add-History {
+    if (-not $Account -or $Account -like 'zz_*') { return }
+    try {
+        New-Item -ItemType Directory -Force $StateDir | Out-Null
+        $o = [ordered]@{
+            t    = $script:StartTime.ToString('yyyy-MM-dd HH:mm:ss')
+            end  = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+            acc  = $Account
+            kq   = $(if ($ViewOnly -and $script:Outcome -ne 'error') { 'view' } else { [string]$script:Outcome })
+            thu  = [int]$harvested
+            gieo = [bool]$script:SowTime
+            mam  = [int]$script:Sprouts
+            cho  = [int]$script:WaitedRipeMin
+            loi  = [string]$script:ErrText
+        }
+        Add-Content -Path (Join-Path $StateDir "lich_su.jsonl") -Value ($o | ConvertTo-Json -Compress) -Encoding UTF8
+    } catch { Log "Ghi lich su loi: $($_.Exception.Message)" }
+}
+
+# ------------------------------ MAIN ---------------------------------
+if ($TestTelegram) {
+    Log "Gui thu Telegram (khong mo thiet bi)"
+    # Lay tam anh co san trong logs\: anh sau thu hoach (hoac anh ruong trong cua lan chay truoc) + anh ket qua
+    $test = @(); $sow = $null
+    foreach ($item in @(@("*_sau_thu_hoach.png", "*_ruong_trong.png"), @("*_ket_qua.png"))) {
+        $f = $null
+        foreach ($pat in $item) {
+            $f = Get-ChildItem (Join-Path $LogDir $pat) -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
+            if ($f) { break }
+        }
+        if (-not $f) { continue }
+        if ($f.Name -like "*ket_qua*") { $sow = $f.LastWriteTime; $label = "2/2 Sau khi trồng khoai" } else { $label = "1/2 Sau khi thu hoạch" }
+        $test += @{ Path = $f.FullName; Caption = (Caption "[GỬI THỬ] $label ($($f.Name))") }
+    }
+    if (-not $test.Count) { Log "Chua co anh nao trong logs\ de gui thu"; exit 1 }
+    Send-Telegram $test (Build-Summary $sow)
+    exit 0
+}
+
+# Chi 1 lan chay mot luc (lich tu dong va lenh /chay tu bot Telegram co the trung nhau)
+$farmMutex = New-Object System.Threading.Mutex($false, "Local\DDTankFarmRun")
+$gotMutex = $false
+try { $gotMutex = $farmMutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $gotMutex = $true }
+if (-not $gotMutex) {
+    Log "Dang co mot lan chay khac -> thoat, khong chay chong"
+    [void](Plan-NextRun 'busy')   # lich tu dong cua tai khoan nay khong bi mat: hen lai sau vai phut
+    exit 2
+}
+
+$exitCode = 0
+$script:StartTime = Get-Date
+$harvested = 0
+try {
+    Log "===== BAT DAU (tai khoan: $(if ($Account) { $Account } else { '-' })$(if ($ViewOnly) { ', chi xem ruong' })$(if ($Manual) { ', chay tay' })) ====="
+    try { Clean-OldLogs } catch { Log "Don log loi: $($_.Exception.Message)" }
+    # Dang /tamdung -> lich tu dong khong chay (chay tay -Manual / xem ruong van chay), hen lai khi het tam dung
+    if (-not $Manual -and -not $ViewOnly -and -not $LoginOnly -and -not $SkipLaunch) {
+        $pu = Get-PauseUntil
+        if ($pu) { $script:Paused = $true; throw "Đang tạm dừng tới $($pu.ToString('HH:mm dd/MM')) – lượt tự động này không chạy" }
+    }
+    # Dang gio bao tri game -> khong chay, hen lai sau gio bao tri (vd /chay hoac lich chay bu roi dung gio bao tri)
+    if (-not $SkipLaunch -and -not $LoginOnly) {
+        $mEnd = Get-MaintenanceEnd (Get-Date)
+        if ($mEnd) {
+            $script:InMaintenance = $true
+            throw "Đang trong giờ bảo trì game ($(Maint-Text), giờ Việt Nam) – không chạy, hẹn lại $($mEnd.ToString('HH:mm dd/MM'))"
+        }
+    }
+    # Can Internet de vao game + gui Telegram (Wi-Fi co the chua ket noi lai ngay sau khi may thuc day)
+    if (-not (Wait-Internet $NetWaitMinutes)) {
+        $script:Offline = $true
+        throw "Mất mạng: không kết nối được Internet sau $NetWaitMinutes phút"
+    }
+    $script:OfflineNote = Pop-OfflineNote
+    Send-PendingTelegram
+    $script:MachineWarn = Check-Machine
+    # Luot tu dong khong bat dau dung y giay theo lich (giong nguoi): cho ngau nhien 0-$StartJitterSec giay
+    if ($HumanLike -and -not $Manual -and -not $ViewOnly -and -not $SkipLaunch -and $StartJitterSec -gt 0) {
+        $d = Rnd 0 $StartJitterSec; Log "Cho ngau nhien $d giay truoc khi bat dau"; Start-Sleep -Seconds $d
+    }
+    Start-Device
+    # Phan thao tac game. Loi giua chung (popup la, game lag, khong thay nut...) -> THU LAI NGAY trong luot nay
+    # ($InRunRetries lan: lan 1 mo lai game, lan 2 khoi dong lai ca thiet bi) thay vi tat may roi hen 30 phut.
+    $harvestedBefore = 0
+    $flow = {
+    # vao game loi -> tat app roi lam lai (Enter-Game tu mo lai app)
+    if (-not $SkipLaunch) { Retry-Step 'vao_game' 'vào game' { Enter-Game } { & $Manager control -v $script:Index app close -pkg $Package | Out-Null; Nap 3 } }
+    if ($LoginOnly) { Log "===== DA VAO SANH (-LoginOnly) ====="; return }
+    if (-not $SkipLaunch) { Retry-Step 'mo_nong_trai' 'mở nông trại' { Open-Farm } }
+    if ($ViewOnly) {
+        View-Farm
+        $st = Get-FarmState
+        if ($st -and $st.ripe) { $script:RipeAt = [datetime]::ParseExact($st.ripe, 'yyyy-MM-dd HH:mm:ss', $null) }
+        $script:Outcome = 'view'
+        Log "===== XEM RUONG XONG ====="
+        return
+    }
+    # lan thu lai: cong don so o da thu hoach o lan truoc (ruong da thu hoach -> lan nay 0 o chin nhung van phai gieo)
+    $harvested = $harvestedBefore + (Retry-Step 'thu_hoach' 'thu hoạch' { Harvest-All })
+    $script:FieldEmpty = $false
+    if ($harvested -eq 0) {
+        # Khong co o chin. Ruong TRONG that (khong o nao co thanh thoi gian / mam cay) -> gieo luon, khong cho.
+        # Con cay dang lon -> ket thuc luon (hoac cho them $WaitRipeMinutes phut neu dat > 0).
+        $s = $null
+        $planted = Count-TimerBars          # cay lon co the che bien go -> dem thanh thoi gian truoc
+        if ($planted -eq 0) {
+            $s = Find-FarmSign
+            $planted = if ($s) { Count-Planted $s } else { -1 }
+        }
+        if ($s -and $planted -eq 0) {
+            $script:FieldEmpty = $true
+            Log "Ruong trong (khong o nao co cay) -> trong moi luon, khong cho"
+            Save-Shot "ruong_trong"
+            Add-Photo (Caption "1/2 Ruộng trống – không có cây để thu hoạch, trồng mới luôn")
+        } else {
+            if ($planted -gt 0) { Log "Cay dang lon o $planted/$PlotCount o (thay thanh thoi gian / mam cay)" }
+            if (Wait-Ripe) { $harvested = Harvest-All }
+        }
+    }
+    if ($harvested -gt 0) {
+        Start-Sleep 1
+        Save-Shot "sau_thu_hoach"
+        $waitNote = if ($script:WaitedRipeMin) { " (đã chờ cây chín $($script:WaitedRipeMin) phút)" } else { "" }
+        Add-Photo (Caption "1/2 Sau khi thu hoạch: $harvested ô$waitNote")
+    }
+    $sign = Retry-Step 'gieo_hat' 'gieo hạt' { Sow-Potatoes $harvested }
+    if ($sign) { Verify-Sown $sign }
+    $script:Outcome = if ($script:SowTime) { 'sown' } else { 'growing' }
+    Log "===== HOAN THANH ====="
+    }   # het $flow
+
+    for ($attempt = 1; ; $attempt++) {
+        try { . $flow; break }
+        catch {
+            $msg = $_.Exception.Message
+            # Mot buoc da het $StepRetries lan thu (hoac loi khong thu lai duoc) -> khoi dong lai thiet bi, chay lai ca luot
+            if ($SkipLaunch -or $attempt -gt $InRunRetries -or -not (Can-Retry $msg)) { throw }
+            if ($harvested -gt $harvestedBefore) { $harvestedBefore = $harvested }
+            try { Save-Shot "loi_ca_luot_$attempt" } catch {}
+            Log "LOI ca luot (lan $attempt/$($InRunRetries + 1)): $msg -> khoi dong lai thiet bi, chay lai tu dau"
+            $script:RetryNotes += "🔁 Lượt lỗi lần ${attempt}: $msg → đã khởi động lại thiết bị, chạy lại từ đầu"
+            Restart-Game -Device
+        }
+    }
+}
+catch {
+    $exitCode = 1
+    $err = $_.Exception.Message
+    Log "LOI: $err"
+    # Dang /tamdung -> khong phai loi, chi hen lai
+    if ($script:Paused) {
+        $script:Outcome = 'paused'; $exitCode = 5
+    }
+    # Loi trong gio bao tri game (luc bat dau, hoac game dong cua giua chung) -> khong tinh vao so lan loi
+    elseif ($script:InMaintenance -or (Get-MaintenanceEnd (Get-Date))) {
+        $script:Outcome = 'maintenance'; $exitCode = 4
+        if (-not $script:InMaintenance) { $err += " (đang giờ bảo trì game)" }
+    }
+    # Loi do mat mang (luc bat dau, hoac giua chung ma gio van khong co mang) -> khong tinh vao so lan loi
+    elseif ($script:Offline -or -not (Test-Internet)) {
+        $script:Outcome = 'offline'; $exitCode = 3
+        Mark-Offline
+        if (-not $script:Offline) { $err += " (đang mất mạng)" }
+    } else {
+        $script:Outcome = 'error'
+    }
+    $script:ErrText = $err
+    if (-not $script:Offline -and -not $script:InMaintenance -and -not $script:Paused) { try { Save-Shot "loi"; Add-Photo (Caption "❌ LỖI: $err") } catch {} }
+}
+finally {
+    try { Stop-Device } catch { Log "Loi khi tat: $($_.Exception.Message)" }
+    if (-not $LoginOnly) {
+        $nextLine = $null
+        # /xemruong khong dong vao lich; cac lan chay khac tu hen lan sau
+        if ($ViewOnly) {
+            try {
+                $i = Get-ScheduledTask -TaskName "DDTank Farm - $Account" -ErrorAction Stop | Get-ScheduledTaskInfo
+                if ($i.NextRunTime) { $nextLine = "⏰ Lịch thu hoạch tới: $($i.NextRunTime.ToString('HH:mm dd/MM/yyyy')) (không đổi)" }
+            } catch { $nextLine = "⏰ Tài khoản này chưa có lịch tự lập" }
+        } elseif (-not $SkipLaunch) { try { $nextLine = Plan-NextRun $script:Outcome } catch { Log "Tu lap lich loi: $($_.Exception.Message)" } }
+        if ($script:Paused) {
+            # Ban da chu dong tam dung -> khong nhan tin moi lan, chi ghi log
+            Log "Dang tam dung -> khong gui Telegram. $nextLine"
+        } elseif ($script:InMaintenance) {
+            # Chua mo thiet bi -> khong co anh: gui 1 tin chu
+            $msg = "🚜 DDTank [$Account] $(Get-Date -Format 'dd/MM HH:mm')`n🛠️ Đang giờ bảo trì game ($(Maint-Text)) – không chạy lượt này."
+            if ($nextLine) { $msg += "`n$nextLine" }
+            Log ("Telegram <- (tin chu)`n    " + ($msg -replace "`n", "`n    "))
+            [void](Post-Telegram @() $msg)
+        } elseif ($script:Outcome -eq 'offline') {
+            # Mat mang tu dau: khong co anh, khong gui duoc -> chi ghi log; co mang lai se bao 1 dong "📵 Mat mang tu ..."
+            Send-Telegram $script:Photos (Build-Summary $script:SowTime $nextLine) 0
+        } else {
+            Send-Telegram $script:Photos (Build-Summary $script:SowTime $nextLine)
+        }
+    }
+    if (-not $LoginOnly -and -not $SkipLaunch) { Add-History }
+}
+exit $exitCode

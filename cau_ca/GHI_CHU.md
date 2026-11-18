@@ -1,0 +1,92 @@
+﻿# Câu cá: ghi chú từ 2 lần người chơi làm mẫu (18/11/2026, thiết bị `auto`, nhân vật tài khoản 1)
+
+## Cấu trúc thư mục (`D:\tools\ddtank-farm\cau_ca\`)
+- `cau_ca.bat`: lệnh chạy. `ket_qua/cau_thu_<ngày>_<giờ>/`: ảnh mỗi lần chạy. `ghi_hinh/thu_*`: các lần ghi thử (Mồi chưa đủ, Ba lô đã đầy…).
+- `ghi_hinh/ghi_cham_1fps/`: lần 1 (12:55–13:00), khoảng 1 ảnh mỗi giây, ảnh 960x540.
+  - Đi từ sảnh tới cầu tàu, câu 3 con, để tuột 1 con vì không bấm Kéo cần.
+- `ghi_hinh/ghi_nhanh_17fps/`: lần 2 (13:17:53–13:19:08), khoảng 17 ảnh mỗi giây, ảnh 640x360.
+  - Câu 4 con, cố ý bỏ lỡ vòng tròn 1 lần (kết quả *Hụt*).
+  - `luc_bam.jpg`: vòng tròn tại thời điểm từng lần bấm.
+- Cả hai thư mục đều có:
+  - `cham.txt`: kết quả `getevent -lt /dev/input/event4`.
+  - `moc_thoi_gian.txt`: mốc để quy uptime của máy ảo ra giờ máy tính.
+  - `sheet*.jpg`: ảnh trước và sau mỗi lần chạm.
+- `cong_cu/`: các script dùng để ghi và phân tích.
+  - `quan_sat_nhanh.ps1`: lấy luồng `screenrecord --output-format=raw-frames` (RGB888, không có header, khoảng 17 ảnh mỗi giây ở 640x360).
+  - `doc_cham.ps1`: đọc danh sách lần chạm.
+  - `to_sheet.ps1`: ghép ảnh trước và sau mỗi lần chạm.
+  - `day_anh.ps1`: ghép dãy ảnh liên tiếp, có thể cắt một vùng.
+
+## Toạ độ chạm
+`getevent` trả về toạ độ RAW dọc (X 0–900, Y 0–1600). Đổi sang màn hình ngang 1600x900 như sau:
+- **sx = Y**
+- **sy = 900 − X**
+
+## Các bước
+1. **Sảnh** → *Giao lưu* (thanh dưới, khoảng (1243,672)) → menu → *Thị trấn nhỏ* (khoảng (967,656)).
+2. **Thị trấn**: bấm mặt đất 4 lần để đi xuống cầu tàu, mỗi lần đi khoảng 1–2 giây. Tới chỗ câu thì hiện 2 nút:
+   - *Câu cá bằng lưới* (khoảng (1111,735)).
+   - *Bắt đầu câu cá* (khoảng (1426,767)).
+3. *Câu cá bằng lưới* hiện hộp hỏi *"có nên dùng lưới…"*. **Không dùng**, đóng bằng ✕.
+4. **Bắt đầu câu cá**: hiện *"Đợi cá cắn câu…"* cùng nút *Rút cần*. Thời gian chờ 4–13 giây.
+5. Nút đổi thành **Kéo cần** (màu đỏ, khoảng (1391,767)). Có khoảng **4,5–5 giây** để bấm. Quá giờ thì hiện *"Kéo cần câu hết thời gian, cá tuột đi"*.
+6. **Vòng tròn** hiện khoảng 0,4 giây sau khi bấm Kéo cần.
+   - Gồm quả cầu cam ở giữa, vòng xanh dương, vòng xanh lá và vòng đỏ ngoài cùng.
+   - Một **vòng sáng co dần từ ngoài vào giữa** trong khoảng 2 giây. Khi đè lên vòng xanh lá thì vòng sáng có màu vàng, vào trong vòng xanh dương thì màu trắng hoặc cam.
+   - Bấm vào giữa (khoảng (1391,767)). Kết quả theo lúc bấm:
+     - **Xuất sắc**: vòng sáng đã vào trong vòng xanh dương nhưng chưa sát quả cầu (bán kính khoảng ½ vòng xanh dương). Lúc bấm cách lúc bấm Kéo cần 1,8–2,0 giây.
+     - **Tuyệt vời**: bấm muộn hơn một chút, vòng sáng gần như đã chụm vào quả cầu. Cách lúc bấm Kéo cần 2,05–2,2 giây.
+     - **Bình thường**: thấy 1 lần ở lần làm mẫu thứ nhất (Sao biển). Chưa rõ là bấm sớm hay do loại cá.
+     - **Không bấm**: vòng sáng chụm hết thì hiện **Hụt**, rồi *"Thao tác chờ đã hết, con cá đã tuột"*. Mất con cá, quay về nút Bắt đầu câu cá.
+7. **Chúc mừng!**: tên cá và cân nặng. Bấm *Nhấn để tiếp tục* (khoảng (1435,830)), rồi quay lại bước 4.
+
+## Cá đã câu được
+Ghẹ 181g, Ghẹ 185g, Tôm 54g, Cá mòi 112g, Cá hố 203g, Cá hố 286g, Cá diếc 160g, Sao biển 105g.
+
+## Câu thử bằng bot (18/11, 13:50–14:14, tài khoản tài khoản 1)
+- Script `cong_cu/cau_thu.ps1`, phần lõi ở `Fisher.cs` và `Ring.cs`. Ảnh mẫu trạng thái nằm trong `mau/`. Mỗi vòng được ghi một dòng vào `hieu_chinh.csv`.
+- Nhận trạng thái trên luồng 640x360:
+  - Chờ bắt đầu: thấy nút *Câu cá bằng lưới* (`nut_luoi.png`).
+  - Đang đợi: thấy chữ *Đợi cá cắn câu* (`doi_ca.png`).
+  - Kéo cần: nút tròn đỏ.
+  - Vòng tròn: quả cầu cam ở tâm (564,290).
+  - Chúc mừng: màn hình tối.
+  - Hết mồi: thông báo **"Mồi chưa đủ"** (`het_moi.png`).
+- Một con cá có thể có **1–3 vòng liên tiếp**. Mỗi vòng có **tốc độ co riêng, 62–253 px/s**, và vòng sau nhanh hơn vòng trước.
+  - Bot kẻ đường thẳng khớp mọi điểm đo của vòng (chỉ dùng r ≥ 33, hoặc r ≥ 25 khi vòng co nhanh).
+  - Bot bấm khi r dự đoán ≤ TargetR + v × 0,12 giây.
+- Độ trễ của cả hệ thống khoảng 0,12 giây. Bấm quá sớm ra Xuất sắc, quá muộn thì ra Hụt và mất cá.
+- Kết quả với TargetR = 9 (14:11): 10 Tuyệt vời, 2 Xuất sắc, 2 Hụt; 7/9 con câu được. Sau đó hết mồi.
+- Tài khoản thứ 2 (có khoảng 5000 cần câu). Sau khi sửa (14:15–14:26), lượt 40 lần lúc 14:26–14:35 cho **37/40 con**; trong 53 vòng có **38 Tuyệt vời (72%)**, 12 Xuất sắc, 3 Hụt.
+  - Vòng chậm (<100 px/s): Tuyệt vời ở r dự đoán 19–23, Xuất sắc ở 22–23 → bấm muộn hơn 1 px (TargetR 12 → 11).
+  - 3 lần Hụt đều do lỗi đo: r > 78 đo sai, và ở vòng nhanh bot bỏ điểm r = 32 nên phải đoán từ điểm cũ → đã sửa, **chưa chạy thử lại**.
+- Các sửa trong lúc thử:
+  - **Vị trí giao diện câu cá đổi theo chỗ nhân vật đứng** → bot tự tìm quả cầu (cụm cam có vòng xanh dương ở r khoảng 37) và nút Kéo cần (cụm đỏ).
+  - Chỉ bấm vòng tròn khi còn thấy quả cầu hoặc vòng sáng. Trước đó có lần bấm nhầm xuống đất làm nhân vật đi chỗ khác.
+  - Vòng 2–3: chữ "Tuyệt vời" của vòng trước che quả cầu một lúc → đo được vòng sáng cũng tính là vòng tròn còn hiện.
+  - Đã bắt đầu câu = nút *Câu cá bằng lưới* biến mất 0,5 giây (chữ *Đợi cá cắn câu* đổi vị trí và nền).
+  - Luồng hình screenrecord có lúc ngắt → tự khởi động lại tối đa 3 lần.
+- 14:39: chạy kiểm tra bản sửa cuối được 2 lần (1 Tuyệt vời, 1 Xuất sắc) thì game báo **"Ba lô đã đầy"** (`balo_day.png`). Bot giờ dừng và báo **BALO DAY**. Phải bán hoặc dọn cá trong Ba lô mới câu tiếp được.
+- 14:42, sau khi người chơi dọn Ba lô: chạy nốt 8 lần → **8/8 con**, 8/9 vòng Tuyệt vời. Gộp cả 10 lần kiểm tra bản sửa cuối (TargetR = 11): **10/10 con, 9/11 vòng Tuyệt vời (82%), 0 Hụt**.
+- 14:47, chạy 20 lần với `input tap`: 17/20 con, 17/26 vòng Tuyệt vời (65%), 6 Xuất sắc, 3 Hụt.
+- **Rút kinh nghiệm từ các vòng Xuất sắc và Hụt:**
+  - Giả thuyết "vòng sáng co nhanh dần về cuối" **không đúng**. Tỉ lệ tốc độ cuối/đầu ở vòng Tuyệt vời là 1,02, ở vòng Xuất sắc là 0,94, đều dao động 0,5–1,75 do nhiễu đo.
+  - Nguyên nhân chính là **nhiễu thời gian của lệnh bấm**. `input tap` khởi động Java mỗi lần, mất 33–65 ms. Khoảng thời gian để được Tuyệt vời chỉ rộng khoảng 100 ms.
+  - Cách sửa: bấm vòng tròn bằng cách ghi thẳng sự kiện vào `/dev/input/event4`. Chạy `cat` một file nhị phân `input_event` 24 byte (tạo khi biết tâm vòng tròn) qua shell mở sẵn, mất 25–30 ms và đều.
+  - Toạ độ RAW dọc: X = 900 − y, Y = x. Mã sự kiện: 3/57 tracking, 1/330 BTN_TOUCH, 3/53 X, 3/54 Y, 0/0 SYN. Thả: tracking = −1.
+- 14:55, chạy 20 lần với cách bấm trực tiếp (TargetR 11, độ trễ 0,12): **19/20 con, 22/28 vòng Tuyệt vời (79%), 5 Xuất sắc, 1 Hụt**.
+  - Các vòng Xuất sắc còn lại chủ yếu là vòng vừa và nhanh (v > 100). Có thể thử độ trễ 0,11 (bấm muộn hơn v × 0,01 px), **chưa thử**.
+- Ba lô chứa khoảng 60 con. Từ lúc dọn tới 15:00 đã câu khoảng 49 con.
+
+## Gợi ý khi viết bot
+- Bước 1–5 và 7: nhận nút bằng ảnh mẫu như phần nông trại, chụp màn hình 1 ảnh mỗi giây là đủ.
+- Bước 6 cần chụp nhanh, nên dùng luồng raw-frames, chỉ đọc vùng vòng tròn.
+  - Cách 1: đo bán kính vòng sáng so với vòng xanh dương rồi bấm.
+  - Cách 2: lấy mốc khi vòng sáng đè vòng xanh lá (màu vàng) rồi bấm sau một khoảng cố định.
+  - Khoảng thời gian để được *Xuất sắc* rộng khoảng 150–250 mili-giây.
+  - Lệnh bấm nên gửi qua một kết nối adb shell mở sẵn để giảm độ trễ.
+
+## Nhật ký để phân tích (thêm 18/11 15:45)
+- Mỗi lần chạy có `ket_qua\cau_thu_<ngày>_<giờ>\log.txt` (toàn bộ nhật ký, kể cả dãy bán kính).
+- `hieu_chinh.csv` có thêm 3 cột: `nguoi` (1 = giả lập người), `vet_ban_kinh` ("giây:bán_kính …" của vòng vừa bấm), `lan_chay` (thư mục ảnh). Các dòng trước 15:45 không có 3 cột này.
+- Phân tích: lọc `ket_qua` = Hut / Xuat sac, xem `vet_ban_kinh` có bị khựng (khoảng trống giữa 2 điểm > 0,1 s), đo sai ở r > 78, hay phải đoán xa (`ngoai_suy_s` lớn), rồi mở ảnh `N_vK_sau_bam.jpg` trong `lan_chay`.

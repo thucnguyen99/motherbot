@@ -1,0 +1,71 @@
+# Cau thu N con tren thiet bi auto (nhan vat phai dung san o cau tau, dang thay nut Bat dau cau ca)
+#   -NghiSau 12,20   : cu cau ngau nhien 12-20 con thi nghi 1 lan
+#   -NghiGiay 20,90  : moi lan nghi ngau nhien 20-90 giay
+#   -KhongNguoi      : tat ngau nhien hoa (lech toa do, thoi gian giu ngon, cho giua cac buoc, nghi)
+#   -ThietBi auto    : ten thiet bi MuMu (tu tim cong ADB; thiet bi phai dang bat va dang o cho cau)
+# Moi lan chay luu vao ket_qua\cau_thu_<ngay>_<gio>\: log.txt (toan bo nhat ky, ca day ban kinh tung vong) + anh.
+# Moi vong bam ghi them 1 dong vao hieu_chinh.csv (ca day ban kinh) de phan tich cac lan Hut / Xuat sac.
+param([int]$N = 3, [string]$ThietBi = "auto", [string]$Serial = "", [int]$TargetR = 11, [double]$LeadSec = 0.12, [switch]$SlowTap,
+      [int[]]$NghiSau = @(12, 20), [int[]]$NghiGiay = @(20, 90), [switch]$KhongNguoi)
+$MuMuDir = "D:\Program Files\Netease\MuMuPlayer\nx_main"
+$adb = Join-Path $MuMuDir "adb.exe"
+$out = Join-Path (Split-Path $PSScriptRoot) ("ket_qua\cau_thu_" + (Get-Date -Format 'yyyyMMdd_HHmmss'))
+New-Item -ItemType Directory -Force $out | Out-Null
+$LogFile = Join-Path $out "log.txt"
+# In ra man hinh + ghi vao log.txt
+function Say([string]$m, [switch]$NoTime) {
+    $line = if ($NoTime) { $m } else { "[{0}] {1}" -f (Get-Date -Format 'HH:mm:ss.fff'), $m }
+    Write-Host $line
+    Add-Content -Path $LogFile -Value $line -Encoding UTF8
+}
+Say ("===== CAU CA {0:yyyy-MM-dd HH:mm:ss}: N={1} ThietBi={2} TargetR={3} LeadSec={4} GiaLapNguoi={5} BamNhanh={6} NghiSau={7} NghiGiay={8} =====" -f (Get-Date), $N, $ThietBi, $TargetR, $LeadSec, (-not $KhongNguoi), (-not $SlowTap), ($NghiSau -join '-'), ($NghiGiay -join '-')) -NoTime
+
+if (-not $Serial) {
+    # cong ADB doi moi lan MuMu khoi dong -> hoi MuMuManager
+    $info = (& (Join-Path $MuMuDir "MuMuManager.exe") info -v all | Out-String | ConvertFrom-Json).PSObject.Properties.Value | Where-Object { $_.name -eq $ThietBi } | Select-Object -First 1
+    if (-not $info) { Say "Khong thay thiet bi MuMu ten '$ThietBi'"; exit 1 }
+    if (-not $info.is_android_started -or -not $info.adb_port) { Say "Thiet bi '$ThietBi' chua bat. Mo MuMu, vao game, dung o cho cau roi chay lai."; exit 1 }
+    $Serial = "$($info.adb_host_ip):$($info.adb_port)"
+    & $adb connect $Serial | Out-Null
+    Say "Thiet bi '$ThietBi' -> ADB $Serial"
+}
+$src = (Get-Content (Join-Path $PSScriptRoot "Ring.cs") -Raw) + "`n" + (Get-Content (Join-Path $PSScriptRoot "Fisher.cs") -Raw)
+# gop using len dau
+$usings = ($src -split "`n" | Where-Object { $_ -match '^using ' } | Sort-Object -Unique) -join "`n"
+$body = ($src -split "`n" | Where-Object { $_ -notmatch '^using ' }) -join "`n"
+Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition ($usings + "`n" + $body)
+$f = New-Object Fisher $adb, $Serial, $out, (Join-Path (Split-Path $PSScriptRoot) "mau")
+$f.TargetR = $TargetR; $f.TapLatency = $LeadSec; $f.FastTap = -not $SlowTap; $f.Human = -not $KhongNguoi
+
+# hieu_chinh.csv: moi vong bam 1 dong. Cot moi (18/11 15:40): nguoi (1 = gia lap nguoi), vet_ban_kinh ("giay:ban_kinh ..."), lan_chay (thu muc ket_qua)
+$f.CsvPath = Join-Path (Split-Path $PSScriptRoot) "hieu_chinh.csv"
+$header = "gio,lan,vong,r_du_doan,r_cuoi,toc_do,ngoai_suy_s,TargetR,TapLatency,ket_qua,nguoi,vet_ban_kinh,lan_chay"
+if (-not (Test-Path $f.CsvPath)) { $header | Set-Content $f.CsvPath -Encoding UTF8 }
+else {
+    $lines = [IO.File]::ReadAllLines($f.CsvPath)
+    if ($lines.Count -and $lines[0] -ne $header) { $lines[0] = $header; [IO.File]::WriteAllLines($f.CsvPath, $lines) }
+}
+
+$f.Log = [Action[string]]{ param($m) Say $m }
+$tong = 0; $duoc = 0
+try {
+    $f.Start()
+    $nextBreak = Get-Random -Minimum $NghiSau[0] -Maximum ($NghiSau[1] + 1)
+    for ($i = 1; $i -le $N; $i++) {
+        Say "===== Lan $i/$N =====" -NoTime
+        $r = $f.CastOnce($i)
+        Say "  -> $r" -NoTime
+        if ($r -like 'LOI*' -or $r -like 'HET MOI*' -or $r -like 'BALO DAY*') { break }
+        $tong++; if ($r -eq 'OK') { $duoc++ }
+        if (-not $KhongNguoi -and $i -lt $N -and $i -ge $nextBreak) {
+            $s = Get-Random -Minimum $NghiGiay[0] -Maximum ($NghiGiay[1] + 1)
+            Say "Nghi $s giay (gia lap nguoi)"
+            Start-Sleep -Seconds $s
+            $nextBreak = $i + (Get-Random -Minimum $NghiSau[0] -Maximum ($NghiSau[1] + 1))
+        }
+    }
+} catch {
+    Say "LOI KHONG MONG DOI: $($_.Exception.InnerException.Message) $($_.Exception.Message)"
+} finally { $f.Stop() }
+Say ("Cau duoc: {0}/{1} con. Cham diem cac vong: {2}" -f $duoc, $tong, (($f.Ratings.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ', ')) -NoTime
+Say "Anh + log: $out" -NoTime

@@ -1,0 +1,18 @@
+# --- Bi mat: KHONG BAO GIO dua len ---
+telegram.json
+
+# --- Du lieu chay (rieng tu, thay doi lien tuc) ---
+logs/
+state/
+backup/
+debug/
+
+# --- Cau ca: anh moi lan chay + ban ghi lam mau (nang, co hinh tai khoan) ---
+cau_ca/ket_qua/
+cau_ca/ghi_hinh/
+
+# --- File tam ---
+*.raw
+*.tmp
+Thumbs.db
+desktop.ini
