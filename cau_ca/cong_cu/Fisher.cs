@@ -186,7 +186,7 @@ public class Fisher
     public void LoadAdj(string path)
     {
         AdjPath = path;
-        if (!File.Exists(path)) return;
+        if (!File.Exists(path)) { SaveAdj(); return; }   // tao file voi gia tri khoi dau
         foreach (var l in File.ReadAllLines(path))
         {
             var kv = l.Split('='); double x;
@@ -205,7 +205,15 @@ public class Fisher
         if (d == 0) return;
         Adj[band] = Math.Max(-10, Math.Min(10, AdjFor(band) + d));
         Log(string.Format(System.Globalization.CultureInfo.InvariantCulture, "  bu vong '{0}' -> {1:0.0} px", band, Adj[band]));
-        if (AdjPath != null) try { File.WriteAllText(AdjPath, AdjText().Replace(" ", "\r\n") + "\r\n"); } catch { }
+        SaveAdj();
+    }
+    public void SaveAdj()
+    {
+        if (AdjPath == null) return;
+        // dong '#' khong co '=' -> LoadAdj bo qua
+        var head = "# Muc bu (px, + = bam som hon) tung loai vong, bot tu hoc tren may " + Environment.MachineName + ".\r\n"
+                 + "# KHAC NHAU TUY MAY (do tre moi may khac nhau): khong chep sang may khac; xoa file de hoc lai tu dau.\r\n";
+        try { File.WriteAllText(AdjPath, head + AdjText().Replace(" ", "\r\n") + "\r\n"); } catch { }
     }
 
     // Theo doi vong sang dang co vao va bam dung luc. bg = anh luc vong tron vua hien

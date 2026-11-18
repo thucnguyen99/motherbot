@@ -112,7 +112,7 @@ Ghẹ 181g, Ghẹ 185g, Tôm 54g, Cá mòi 112g, Cá hố 203g, Cá hố 286g, C
 | `thua_cham` | Vòng 1 của loại cá đó | 10/10 Tuyệt vời | Giữ nguyên |
 
 - Khoảng cách giữa 2 lần đo: khung thường 0,030–0,041 s, khung thưa 0,065–0,069 s. Ngưỡng phân loại là 0,05 s.
-- **Sửa: bù riêng từng loại vòng, tự học và lưu theo máy** (`bu_vong_<tên máy>.txt`).
+- **Sửa: bù riêng từng loại vòng, tự học và lưu theo máy** (`bu_vong_<tên máy>.txt`, có commit; **khác nhau tuỳ máy**, không chép sang máy khác).
   - Mức bù (px, dương = bấm sớm hơn) được cộng vào ngưỡng bấm.
   - Sau mỗi vòng: Xuất sắc → −0,5; Hụt → +1,5.
   - Giá trị khởi đầu: `vua` −1,5; `nhanh` −3; `thua_vua` +4; các loại khác 0.

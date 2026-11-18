@@ -844,8 +844,21 @@ Khi chạy trên máy mới:
 - Bot cũng chia theo độ thưa của khung hình: tiền tố `thua_` khi chỉ đo được khoảng 14 lần/giây thay vì 30. Đây là một loại cá có hình vòng tròn hiện trễ.
 - Mỗi loại có một mức bù (px) cộng vào ngưỡng bấm. Sau mỗi vòng: **Xuất sắc → bấm muộn hơn 0,5 px**, **Hụt → bấm sớm hơn 1,5 px**.
 - Mức bù lưu ở `cau_ca\bu_vong_<tên máy>.txt`, mỗi máy một file.
+  - Tên máy là `%COMPUTERNAME%` của Windows. Ví dụ máy DELL là `bu_vong_DESKTOP-UHCRB1I.txt`.
+  - File được tạo với giá trị khởi đầu ở lần chạy đầu tiên, rồi cập nhật sau mỗi vòng ra Xuất sắc hoặc Hụt.
   - Đầu và cuối mỗi lượt chạy, bot in bảng mức bù.
   - Muốn học lại từ đầu thì xoá file đó.
+
+> ⚠️ **Mức bù và `-LeadSec` khác nhau tuỳ theo máy.**
+> - Các file `bu_vong_*.txt` được commit lên repo để giữ lại mức bù đã học. Mỗi file chỉ đúng với **đúng máy có tên đó**.
+> - **Không** đổi tên hay chép file của máy này sang máy khác.
+> - Máy mới sẽ tự tạo file riêng và học lại, kể cả khi cùng cài đặt MuMu (1600x900, 240 dpi).
+> - Sau khi câu một đợt dài, nhớ commit file `bu_vong_<tên máy>.txt` của máy đó để lưu mức bù mới.
+>
+> | Máy | Tên máy | `-LeadSec` |
+> |---|---|---|
+> | Máy cũ | (chưa ghi) | `0.12` |
+> | Máy DELL | `DESKTOP-UHCRB1I` | `0.03` |
 
 ### Bot làm gì mỗi lần câu
 1. Chờ thấy nút *Câu cá bằng lưới* (đang ở chỗ câu), rồi bấm **Bắt đầu câu cá**. **Không bao giờ bấm Câu cá bằng lưới.**
@@ -882,7 +895,7 @@ Mỗi lần câu mất khoảng 11–13 giây, chưa tính các lần nghỉ.
   - `N_0_truoc.jpg`: trước khi câu. `N_vK_sau_bam.jpg`: sau khi bấm vòng K (thấy chữ Tuyệt vời / Xuất sắc / Hụt).
   - `N_3_chuc_mung.jpg` / `N_3_khong_chuc_mung.jpg`: câu được / trượt. `het_moi`, `balo_day`, `loi_…`: lúc bot dừng.
 - `cau_ca\hieu_chinh.csv`: mỗi vòng bấm một dòng, ghi thêm vào sau qua mọi lần chạy. Gồm giờ, lần, vòng, bán kính dự đoán, tốc độ co, kết quả, có giả lập người hay không, **dãy bán kính** (`vet_ban_kinh`) tên thư mục lần chạy (`lan_chay`) để mở ảnh tương ứng, và **loại vòng** (`loai_vong` = `loại:bù_px:khoảng_cách_đo_s`). Dùng để tìm nguyên nhân các lần Hụt / Xuất sắc và chỉnh script.
-- `cau_ca\bu_vong_<tên máy>.txt`: mức bù từng loại vòng mà bot đã tự học trên máy đó.
+- `cau_ca\bu_vong_<tên máy>.txt`: mức bù từng loại vòng mà bot đã tự học trên máy đó. Có commit lên repo, **mỗi máy một file, khác nhau tuỳ máy**.
 - `cau_ca\GHI_CHU.md`: ghi chú kỹ thuật (luật vòng tròn, cách nhận trạng thái, lịch sử hiệu chỉnh).
 
 ### Lưu ý
