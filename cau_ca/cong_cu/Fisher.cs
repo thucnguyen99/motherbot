@@ -63,9 +63,14 @@ public class Fisher
         sh = Process.Start(ps);
         sh.OutputDataReceived += (o, e) => { }; sh.BeginOutputReadLine();
         sh.ErrorDataReceived += (o, e) => { }; sh.BeginErrorReadLine();
-        var dl = DateTime.Now.AddSeconds(5);
-        while (seq == 0 && DateTime.Now < dl) Thread.Sleep(20);
-        if (seq == 0) throw new Exception("Khong nhan duoc luong hinh tu screenrecord");
+        // lan dau sau khi adb connect / MuMu vua mo, screenrecord co the chua ra hinh -> thu lai toi da 2 lan
+        for (int attempt = 0; seq == 0 && attempt < 3; attempt++)
+        {
+            if (attempt > 0) { Log("Chua co hinh -> khoi dong lai screenrecord (lan " + attempt + ")"); RestartStream(); }
+            var dl = DateTime.Now.AddSeconds(5);
+            while (seq == 0 && DateTime.Now < dl) Thread.Sleep(20);
+        }
+        if (seq == 0) throw new Exception("Khong nhan duoc luong hinh tu screenrecord (cua so MuMu dang thu nho?)");
     }
 
     void StartStream()
@@ -164,16 +169,57 @@ public class Fisher
         return "?(vang " + yel + " xanh " + blu + " do " + red + ")";
     }
 
+    // ---------- bu rieng tung loai vong (tu hoc, luu theo may) ----------
+    // Do 18/11 tren may 2 (LeadSec 0.03, 259 vong): vong cham (<130 px/s) 201/204 Tuyet voi; vong vua (130-190, vong 2) ~25% Xuat sac;
+    // vong nhanh (>=190, vong 3) 100% Xuat sac -> bam som. Vong "thua khung" (do duoc ~14 diem/s thay vi ~30, 1 loai ca 2 vong,
+    // vong 2 ~157 px/s) 4/4 Hut -> bam muon (hinh hien tre hon); vong 1 cua loai ca do (~104 px/s) 10/10 Tuyet voi.
+    // Khoang cach do: khung thuong 0.030-0.041s, thua 0.065-0.069s -> nguong 0.05.
+    // Bu (px, + = bam som hon) cong vao nguong bam, sau moi vong: Xuat sac -> -0.5 (bam muon hon), Hut -> +1.5 (som hon, vi Hut mat ca).
+    // Can bang khi Xuat sac ~ 3 lan Hut.
+    public Dictionary<string, double> Adj = new Dictionary<string, double> {
+        { "cham", 0 }, { "vua", -1.5 }, { "nhanh", -3 }, { "thua_cham", 0 }, { "thua_vua", 4 }, { "thua_nhanh", 4 } };
+    string AdjPath;
+    string tapBand; bool tapped;   // loai vong vua bam (null = khong hoc: bam du phong / khung hinh cu) ; vong nay da bam chua
+    static string Band(double v, double gap) { return (gap > 0.05 ? "thua_" : "") + (v < 130 ? "cham" : v < 190 ? "vua" : "nhanh"); }
+    double AdjFor(string band) { double a; return Adj.TryGetValue(band, out a) ? a : 0; }
+
+    public void LoadAdj(string path)
+    {
+        AdjPath = path;
+        if (!File.Exists(path)) return;
+        foreach (var l in File.ReadAllLines(path))
+        {
+            var kv = l.Split('='); double x;
+            if (kv.Length == 2 && double.TryParse(kv[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out x)) Adj[kv[0].Trim()] = x;
+        }
+    }
+    public string AdjText()
+    {
+        var parts = new List<string>();
+        foreach (var kv in Adj) parts.Add(kv.Key + "=" + kv.Value.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
+        return string.Join(" ", parts.ToArray());
+    }
+    void Learn(string band, string rt)
+    {
+        double d = rt == "Xuat sac" ? -0.5 : rt == "Hut" ? 1.5 : 0;
+        if (d == 0) return;
+        Adj[band] = Math.Max(-10, Math.Min(10, AdjFor(band) + d));
+        Log(string.Format(System.Globalization.CultureInfo.InvariantCulture, "  bu vong '{0}' -> {1:0.0} px", band, Adj[band]));
+        if (AdjPath != null) try { File.WriteAllText(AdjPath, AdjText().Replace(" ", "\r\n") + "\r\n"); } catch { }
+    }
+
     // Theo doi vong sang dang co vao va bam dung luc. bg = anh luc vong tron vua hien
     void TrackAndTap(byte[] bg, ref long last, int round, DateTime pullTap)
     {
-        LastTrace = "";
+        LastTrace = ""; tapBand = null; tapped = false;
         if (round > 1) PrepareFastTap();   // moi vong 1 diem bam lech khac (~20ms, vong sang moi bat dau tu r ~90)
         DateTime t0 = DateTime.Now, t;
         var pts = new List<KeyValuePair<double, int>>();   // (giay tu t0, ban kinh)
         int lastR = 999; double v = 85; string trace = "";
+        double tFirst = 0, tLast = 0; int nMeas = 0;   // de tinh khoang cach trung binh giua 2 lan do duoc vong sang
         DateTime ballSeen = DateTime.Now;     // lan cuoi con thay qua cau cam: mat vong tron thi KHONG bam (bam vao dat -> nhan vat di cho khac)
         DateTime ringSeen = DateTime.MinValue; // lan cuoi do duoc vong sang dang co
+        DateTime frameAt = DateTime.Now;       // lan cuoi nhan duoc khung hinh moi
         var dl = DateTime.Now.AddSeconds(3.2);
         while (DateTime.Now < dl)
         {
@@ -181,15 +227,17 @@ public class Fisher
             byte[] p = null;
             lock (lk) { if (seq != last) { last = seq; t = frameT; p = frame; } else t = DateTime.Now; }
             if (p == null) { Thread.Sleep(2); }
-            else if (Ball(p)) ballSeen = DateTime.Now;
+            else { frameAt = DateTime.Now; if (Ball(p)) ballSeen = DateTime.Now; }
             // vong 2+: chu "Tuyet voi" cua vong truoc con che qua cau mot luc -> do duoc vong sang cung tinh la vong tron con hien
+            // chi tinh thoi gian CO khung hinh moi: luong hinh khung lai (18/11 lan 10: dung 0.8s) khong co nghia la vong tron da mat
             DateTime alive = ballSeen > ringSeen ? ballSeen : ringSeen;
-            if ((DateTime.Now - alive).TotalSeconds > 0.8) { Log("Vong " + round + ": mat vong tron -> khong bam. ban kinh:" + trace); LastTap = ",,,"; return; }
+            if ((frameAt - alive).TotalSeconds > 0.8) { Log("Vong " + round + ": mat vong tron -> khong bam. ban kinh:" + trace); LastTap = ",,,"; return; }
             double ts = (t - t0).TotalSeconds;
             int sc; int r = p == null ? -1 : Ring.Radius(p, bg, W, H, out sc);
             if (r > 0 && r <= lastR + 3 && (lastR != 999 || r >= 50))
             {
                 lastR = r; ringSeen = DateTime.Now; trace += string.Format(" {0:0.00}:{1}", ts, r); LastTrace = trace;
+                if (nMeas++ == 0) tFirst = ts; tLast = ts;
                 // r < 33: vong sang lan vao vong xanh duong (~37), do bi tre -> khong dung de tinh toc do / du doan
                 // r 25-32 chi nhan khi khop toc do dang do (vong nhanh: tranh doan xa tu diem cu; vong cham: diem nho bi tre -> bo)
                 if (r >= 33) pts.Add(new KeyValuePair<double, int>(ts, r));
@@ -220,17 +268,22 @@ public class Fisher
                 var b = pts[pts.Count - 1];
                 double nowS = (DateTime.Now - t0).TotalSeconds;
                 double pred = fit ? fitA - v * nowS : b.Value - v * (nowS - b.Key);
-                if (pred <= TargetR + v * TapLatency)
+                double gap = nMeas > 1 ? (tLast - tFirst) / (nMeas - 1) : 0.033;
+                string band = Band(v, gap); double adj = AdjFor(band);
+                if (pred <= TargetR + v * TapLatency + adj)
                 {
                     TapRing();
+                    // khung hinh cuoi da cu > 0.2s (luong hinh khung) -> ket qua khong phan anh muc bu -> khong hoc
+                    tapBand = nowS - b.Key > 0.2 ? null : band;
                     LastTap = string.Format("{0:0.0},{1},{2:0},{3:0.000}", pred, b.Value, v, (DateTime.Now - t0).TotalSeconds - b.Key);
-                    Log(string.Format("BAM vong {0}: r du doan {1:0} (do lan cuoi r={2}, toc do {3:0} px/s, con {5:0.00}s toi luc chum), {4:0.00}s sau Keo can", round, pred, b.Value, v, (DateTime.Now - pullTap).TotalSeconds, pred / v));
+                    LastBand = string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0}:{1:0.0}:{2:0.000}", band, adj, gap);
+                    Log(string.Format("BAM vong {0} tai {6}: r du doan {1:0} (do lan cuoi r={2}, toc do {3:0} px/s, con {5:0.00}s toi luc chum), {4:0.00}s sau Keo can, vong '{7}' bu {8:0.0}", round, pred, b.Value, v, (DateTime.Now - pullTap).TotalSeconds, pred / v, ringPt, band, adj));
                     Log("  ban kinh:" + trace);
                     return;
                 }
             }
         }
-        LastTap = ",,,";
+        LastTap = ",,,"; LastBand = "";
         if ((DateTime.Now - ballSeen).TotalSeconds < 0.3 || (DateTime.Now - ringSeen).TotalSeconds < 0.15) { TapRing(); Log("Vong " + round + ": khong do duoc vong sang -> bam du phong. ban kinh:" + trace); }
         else Log("Vong " + round + ": het gio, khong con qua cau -> khong bam. ban kinh:" + trace);
     }
@@ -243,6 +296,7 @@ public class Fisher
     readonly Random rng = new Random();
     readonly HashSet<string> pushed = new HashSet<string>();
     string ringKey;                  // file cham da day san cho vong tron hien tai
+    string ringPt = "";              // diem bam vong tron that (man hinh 1600x900, da lech ngau nhien)
 
     int Rnd(int a, int b) { return rng.Next(a, b + 1); }
     void SleepRnd(int a, int b) { Thread.Sleep(Human ? Rnd(a, b) : (a + b) / 2); }
@@ -290,11 +344,13 @@ public class Fisher
     }
 
     // Bam nut thuong (Bat dau, Keo can, Nhan de tiep tuc): lech toi da +-jit px, giu 45-120ms
-    void Tap(int x, int y, int jit = 8)
+    // tra ve diem bam that (sau khi lech ngau nhien) de ghi log
+    string Tap(int x, int y, int jit = 8)
     {
         if (Human) { x += Rnd(-jit, jit); y += Rnd(-jit, jit); }
-        if (!FastTap) { sh.StandardInput.WriteLine("input tap " + x + " " + y); sh.StandardInput.Flush(); return; }
-        Inject(EnsureTapFile(x, y), Human ? Rnd(45, 120) : 60);
+        if (!FastTap) { sh.StandardInput.WriteLine("input tap " + x + " " + y); sh.StandardInput.Flush(); }
+        else Inject(EnsureTapFile(x, y), Human ? Rnd(45, 120) : 60);
+        return "(" + x + "," + y + ")";
     }
 
     // Chuan bi cham cho vong tron: chon diem lech ngau nhien quanh tam qua cau (+-6px man hinh, qua cau ban kinh ~32px)
@@ -304,14 +360,17 @@ public class Fisher
         int sx = (int)(Ring.CX * 2.5), sy = (int)(Ring.CY * 2.5);
         if (Human) { sx += Rnd(-6, 6); sy += Rnd(-6, 6); }
         ringKey = FastTap ? EnsureTapFile(sx, sy) : sx + "_" + sy;
+        ringPt = "(" + sx + "," + sy + ")";
     }
     void TapRing()
     {
+        tapped = true;
         if (FastTap && ringKey != null) Inject(ringKey, Human ? Rnd(40, 90) : 50);
-        else Tap((int)(Ring.CX * 2.5), (int)(Ring.CY * 2.5), 6);
+        else ringPt = Tap((int)(Ring.CX * 2.5), (int)(Ring.CY * 2.5), 6);
     }
     string LastTap = ",,,";
     string LastTrace = "";   // day "giay:ban_kinh" cua vong vua bam (de phan tich lan Hut / Xuat sac)
+    string LastBand = "";    // "loai_vong:bu_px:khoang_cach_do_s" luc bam
     public string CsvPath;   // ghi moi vong: gio, lan, vong, r_du_doan, r_cuoi, toc_do, ngoai_suy_s, TargetR, TapLatency, ket_qua
 
     // Mot lan cau. Tra ve mo ta ket qua
@@ -335,8 +394,7 @@ public class Fisher
         {
             p = Next(ref last, out t);
             if (!Idle(p)) break;           // khong con o man cho -> khong bam them (tranh bam trung nut Rut can)
-            Log("Bam Bat dau cau ca" + (k > 1 ? " (lan " + k + ")" : ""));
-            Tap(1435, 760);
+            Log("Bam Bat dau cau ca" + (k > 1 ? " (lan " + k + ")" : "") + " tai " + Tap(1435, 760));
             var dls = DateTime.Now.AddSeconds(3);
             bool noBait = false; DateTime gone = DateTime.MinValue;
             while (DateTime.Now < dls)
@@ -356,9 +414,9 @@ public class Fisher
         p = WaitFor(Pull, 30, "Keo can", ref last, out t);
         if (p == null) { SaveFrame(Next(ref last, out t), no + "_loi_khong_thay_keo_can"); return "LOI: 30s khong thay nut Keo can"; }
         int kx, ky; Ring.RedCount(p, W, H, out kx, out ky);   // tam diem do ~ tam nut Keo can (hoi lech len do vong cung do)
-        Log(string.Format("Ca can cau -> bam Keo can tai ({0},{1})", (int)(kx * 2.5), (int)((ky + 12) * 2.5)));
         SleepRnd(220, 700);   // nguoi thay nut do roi moi bam (con ~5s moi tuot ca)
-        Tap((int)(kx * 2.5), (int)((ky + 12) * 2.5));
+        // tam nut = tam cum diem do (man hinh 1600x900); diem bam that lech ngau nhien quanh tam
+        Log(string.Format("Ca can cau -> bam Keo can tai {2} (tam nut ({0},{1}))", (int)(kx * 2.5), (int)((ky + 12) * 2.5), Tap((int)(kx * 2.5), (int)((ky + 12) * 2.5))));
         var pullTap = DateTime.Now;
 
         // 3. vong tron
@@ -367,7 +425,7 @@ public class Fisher
         var bg = p;
         int bx, by; Ring.FindBall(p, W, H, out bx, out by); Ring.CX = bx; Ring.CY = by;
         PrepareFastTap();   // ~20ms, vong sang con > 1s moi toi luc bam
-        Log(string.Format("Vong tron hien sau {0:0.00}s, tam ({1},{2})", (t - pullTap).TotalSeconds, bx, by));
+        Log(string.Format("Vong tron hien sau {0:0.00}s, tam qua cau ({1},{2}) tren anh 640x360", (t - pullTap).TotalSeconds, bx, by));
 
         // 4. co the co nhieu vong lien tiep (ca kho): vong nao co vao thi bam vong do, toi khi ra man Chuc mung
         bool gotResult = false;
@@ -376,12 +434,16 @@ public class Fisher
             TrackAndTap(bg, ref last, round, pullTap);
             long l2 = last; DateTime t2;
             Thread.Sleep(350); var pr = Next(ref l2, out t2); SaveFrame(pr, no + "_v" + round + "_sau_bam");
-            string rt = Rating(pr); Log("  ket qua vong " + round + ": " + rt);
+            string rt = Rating(pr);
+            // khong bam ma van doc ra chu (18/11 lan 10: vong xanh duong doc nham thanh "Xuat sac") -> ghi ro la khong bam
+            if (!tapped && rt != "Hut") rt = "Khong bam";
+            Log("  ket qua vong " + round + ": " + rt);
             if (Ratings.ContainsKey(rt)) Ratings[rt]++; else Ratings[rt] = 1;
+            if (tapBand != null) Learn(tapBand, rt);
             if (CsvPath != null)
                 File.AppendAllText(CsvPath, string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "{0:yyyy-MM-dd HH:mm:ss},{1},{2},{3},{4},{5},{6},{7},\"{8}\",{9}\r\n",
-                    DateTime.Now, no, round, LastTap, TargetR, TapLatency, rt, Human ? 1 : 0, LastTrace.Trim(), Path.GetFileName(outDir)));
+                    "{0:yyyy-MM-dd HH:mm:ss},{1},{2},{3},{4},{5},{6},{7},\"{8}\",{9},{10}\r\n",
+                    DateTime.Now, no, round, LastTap, TargetR, TapLatency, rt, Human ? 1 : 0, LastTrace.Trim(), Path.GetFileName(outDir), LastBand));
             // cho: man toi (xong) / vong sang moi o xa (vong tiep) / mat qua cau qua lau (truot)
             var dl2 = DateTime.Now.AddSeconds(4); DateTime noBall = DateTime.MinValue; bool nextRound = false;
             while (DateTime.Now < dl2)
@@ -405,8 +467,7 @@ public class Fisher
         if (!gotResult) return "TRUOT (qua 6 vong)";
         SleepRnd(800, 1800);  // xem ca vua cau duoc roi moi bam tiep
         SaveFrame(Next(ref last, out t), no + "_3_chuc_mung");
-        Tap(1435, 830);
-        Log("Bam Nhan de tiep tuc");
+        Log("Bam Nhan de tiep tuc tai " + Tap(1435, 830));
         WaitFor(q => !Dark(q), 4, "het Chuc mung", ref last, out t);
         return "OK";
     }

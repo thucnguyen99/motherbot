@@ -6,8 +6,14 @@
 # Moi lan chay luu vao ket_qua\cau_thu_<ngay>_<gio>\: log.txt (toan bo nhat ky, ca day ban kinh tung vong) + anh.
 # Moi vong bam ghi them 1 dong vao hieu_chinh.csv (ca day ban kinh) de phan tich cac lan Hut / Xuat sac.
 param([int]$N = 3, [string]$ThietBi = "auto", [string]$Serial = "", [int]$TargetR = 11, [double]$LeadSec = 0.12, [switch]$SlowTap,
-      [int[]]$NghiSau = @(12, 20), [int[]]$NghiGiay = @(20, 90), [switch]$KhongNguoi)
-$MuMuDir = "D:\Program Files\Netease\MuMuPlayer\nx_main"
+      [string[]]$NghiSau = @(12, 20), [string[]]$NghiGiay = @(20, 90), [switch]$KhongNguoi)
+# Goi qua "powershell -File ... -NghiSau 20,30" thi "20,30" toi day la 1 chuoi (de [int[]] se thanh 2030) -> tu tach thanh [min, max]
+function Khoang([string[]]$v) { $n = [int[]]($v -split '[,;\s-]+' | Where-Object { $_ }); if ($n.Count -eq 1) { $n += $n[0] }; @($n[0], $n[1]) }
+$NghiSau = Khoang $NghiSau; $NghiGiay = Khoang $NghiGiay
+# MuMu cai o C: hay D: tuy may -> tim tren moi o dia
+$MuMuDir = Get-PSDrive -PSProvider FileSystem | ForEach-Object { Join-Path $_.Root "Program Files\Netease\MuMuPlayer\nx_main" } |
+    Where-Object { Test-Path (Join-Path $_ "MuMuManager.exe") } | Select-Object -First 1
+if (-not $MuMuDir) { Write-Host "Khong tim thay MuMu (<o dia>:\Program Files\Netease\MuMuPlayer\nx_main)"; exit 1 }
 $adb = Join-Path $MuMuDir "adb.exe"
 $out = Join-Path (Split-Path $PSScriptRoot) ("ket_qua\cau_thu_" + (Get-Date -Format 'yyyyMMdd_HHmmss'))
 New-Item -ItemType Directory -Force $out | Out-Null
@@ -39,7 +45,8 @@ $f.TargetR = $TargetR; $f.TapLatency = $LeadSec; $f.FastTap = -not $SlowTap; $f.
 
 # hieu_chinh.csv: moi vong bam 1 dong. Cot moi (18/11 15:40): nguoi (1 = gia lap nguoi), vet_ban_kinh ("giay:ban_kinh ..."), lan_chay (thu muc ket_qua)
 $f.CsvPath = Join-Path (Split-Path $PSScriptRoot) "hieu_chinh.csv"
-$header = "gio,lan,vong,r_du_doan,r_cuoi,toc_do,ngoai_suy_s,TargetR,TapLatency,ket_qua,nguoi,vet_ban_kinh,lan_chay"
+# Cot loai_vong (18/11 22:40): "loai:bu_px:khoang_cach_do_s" luc bam (xem bu vong tu hoc trong Fisher.cs)
+$header = "gio,lan,vong,r_du_doan,r_cuoi,toc_do,ngoai_suy_s,TargetR,TapLatency,ket_qua,nguoi,vet_ban_kinh,lan_chay,loai_vong"
 if (-not (Test-Path $f.CsvPath)) { $header | Set-Content $f.CsvPath -Encoding UTF8 }
 else {
     $lines = [IO.File]::ReadAllLines($f.CsvPath)
@@ -47,6 +54,9 @@ else {
 }
 
 $f.Log = [Action[string]]{ param($m) Say $m }
+# Muc bu tung loai vong tu hoc theo ket qua, luu rieng tung may (do tre moi may khac nhau)
+$f.LoadAdj((Join-Path (Split-Path $PSScriptRoot) ("bu_vong_" + $env:COMPUTERNAME + ".txt")))
+Say "Bu vong (px, + = bam som): $($f.AdjText())"
 $tong = 0; $duoc = 0
 try {
     $f.Start()
@@ -68,4 +78,5 @@ try {
     Say "LOI KHONG MONG DOI: $($_.Exception.InnerException.Message) $($_.Exception.Message)"
 } finally { $f.Stop() }
 Say ("Cau duoc: {0}/{1} con. Cham diem cac vong: {2}" -f $duoc, $tong, (($f.Ratings.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ', ')) -NoTime
+Say "Bu vong sau lan chay: $($f.AdjText())" -NoTime
 Say "Anh + log: $out" -NoTime
