@@ -129,7 +129,9 @@ Mỗi lần chạy xong, script **tự hẹn lần chạy sau** của chính tà
 | Không biết giờ chín (vd cây do người trồng tay) | Không hẹn, báo về Telegram để bạn tự `/chay` khi khoai chín |
 | Lỗi (đăng nhập, không thấy nút…) | **Làm lại ngay bước bị lỗi, tối đa 3 lần** (vào game: tắt app mở lại; mở nông trại / thu hoạch / gieo hạt: đóng popup đang che). Một bước lỗi đủ 3 lần thì khởi động lại thiết bị, chạy lại cả lượt 1 lần. Vẫn lỗi mới hẹn lại sau 30 phút; lỗi 3 lượt liên tiếp thì dừng chuỗi và báo Telegram. Telegram ghi từng lần làm lại *"🔁 Bước … lỗi lần N: … → làm lại bước"*. Lỗi mà thử lại cũng vô ích (chưa lưu mật khẩu, không thấy tài khoản, hết hạt khoai), mất mạng, giờ bảo trì, hoặc lượt đã chạy quá 35 phút thì không làm lại |
 | **Mất mạng Internet** (lúc bắt đầu, hoặc gặp lỗi mà lúc đó không có mạng) | Sau 10 phút, **không tính vào 3 lần lỗi**, thử lại mãi tới khi có mạng |
-| **Giờ bảo trì game** (thứ 5, 14:00–15:00 giờ Việt Nam) | Sau giờ bảo trì (15:15), **không tính vào 3 lần lỗi** |
+| **Giờ bảo trì game** (thứ 5, 14:00–15:00 giờ Việt Nam) | Sau giờ bảo trì (15:05), **không tính vào 3 lần lỗi** |
+| **Game báo đang bảo trì** khi vào game (bảo trì đột xuất, hoặc kéo dài quá 15:05) | Sau 30 phút (`$MaintRetryMinutes`), **không tính vào 3 lần lỗi**, thử lại tới khi hết bảo trì |
+| **Game đang tải bản cập nhật** (thường ngay sau bảo trì) | Không phải lỗi: **chờ tải xong, không tắt app** (tối đa `$UpdateWaitMin` = 20 phút mỗi lượt), rồi chạy tiếp bình thường. Quá 20 phút thì báo lỗi, lượt sau tải tiếp từ chỗ dở |
 | Đang có lượt khác chạy (vd 2 tài khoản trùng giờ, hoặc `/chay` lúc lịch đang chạy) | **Xếp hàng chờ** lượt kia xong rồi chạy luôn trên thiết bị `auto` (tối đa `$QueueWaitMin` = 15 phút, quá thì hẹn lại sau 10 phút). Tin Telegram có dòng `⏳ Trùng lượt đang chạy → đã xếp hàng chờ N phút`. Trùng **chính tài khoản đó** (vd `/chay` đúng lúc lịch của nó đang chạy) thì lượt sau tự thoát. Không chạy song song trên thiết bị thứ 2 (`alt3`): máy 7,9 GB RAM, mỗi thiết bị MuMu 3 GB, 2 thiết bị cùng lúc sẽ hết RAM (19/11) |
 | Đang **tạm dừng** (`/tamdung <giờ>` trên Telegram) | Lúc hết tạm dừng + 1 phút, không gửi Telegram. `/chay` và `/xemruong` vẫn chạy được. `/tiep` bật lại sớm và kéo các lượt bị dời về chạy ngay (2 phút nữa) |
 
@@ -145,10 +147,12 @@ Mỗi lần chạy xong, script **tự hẹn lần chạy sau** của chính tà
 Nhờ vậy khoai được thu gần như **đúng lúc chín** và gieo lại ngay, không mất vài phút mỗi vòng như cách hẹn sau giờ chín. Cây chín trễ hơn dự tính tới ~7 phút vẫn kịp thu trong cùng lượt. Mỗi lượt mất tối đa ~20 phút (giới hạn task: 45 phút).
 
 **Giờ bảo trì game** (mặc định **thứ 5, 14:00–15:00, giờ Việt Nam**, đổi trong `$MaintenanceWindows` đầu `ddtank_farm.ps1`):
-- Giờ hẹn rơi vào khoảng **13:35 – 15:15 thứ 5** (25 phút trước bảo trì vì 1 lượt chạy mất ~6 phút + chờ cây chín tối đa 12 phút, 15 phút sau phòng bảo trì kéo dài) thì được **dời sang 15:15**. Tin Telegram ghi rõ: `⏰ Đã tự lập lịch lần tới: 15:15 … (khoai chín 14:00; dời qua giờ bảo trì game thứ 5 14:00–15:00)`.
-- Lượt chạy bắt đầu trong khoảng đó (vd `/chay` tay, hoặc lịch chạy bù) thì **không mở thiết bị**, hẹn lại 15:15 và nhắn `🛠️ Đang giờ bảo trì game (thứ 5 14:00–15:00) – không chạy lượt này.`
-- Lỗi xảy ra trong khoảng đó (game đóng cửa giữa chừng) cũng hẹn lại 15:15 và không tính là lỗi.
-- Bảo trì **đột xuất** hoặc kéo dài quá 15:15 thì vẫn tính là lỗi bình thường (thử lại 30 phút/lần, 3 lần thì dừng chuỗi, gửi `/chay <tài khoản>` để chạy lại).
+- Giờ hẹn rơi vào khoảng **13:35 – 15:05 thứ 5** (25 phút trước bảo trì vì 1 lượt chạy mất ~6 phút + chờ cây chín tối đa 12 phút, 5 phút sau phòng bảo trì kéo dài) thì được **dời sang 15:05**. Tin Telegram ghi rõ: `⏰ Đã tự lập lịch lần tới: 15:05 … (khoai chín 14:00; dời qua giờ bảo trì game thứ 5 14:00–15:00)`.
+- Lượt **tự động** bắt đầu trong khoảng đó (vd lịch chạy bù) thì **không mở thiết bị**, hẹn lại 15:05 và nhắn `🛠️ Đang giờ bảo trì game (thứ 5 14:00–15:00) – không chạy lượt này.`
+- `/chay` và `/xemruong` (chạy tay) **vẫn vào game** trong khoảng đó, vì bảo trì có thể xong sớm: game còn bảo trì thì script thấy popup bảo trì (dòng dưới) → dừng, không tính lỗi; hết bảo trì rồi thì chạy bình thường.
+- Ngay sau bảo trì game thường **tải bản cập nhật** (19/11: 90 MB, dòng *"Đang cập nhật đến phiên bản…"* góc dưới trái, *"vui lòng không thoát game"*). Script nhận ra màn hình này (ảnh mẫu `templates\update_screen.png`) và **chờ, không tắt app** (tối đa `$UpdateWaitMin` = 20 phút). Telegram ghi `⬇️ Game tải bản cập nhật N phút`. Cập nhật xong game có thể **tự thoát** ra màn hình chính Android → script thấy game không còn chạy (`dumpsys window`) thì mở lại app ngay, không ngồi chờ 3 phút.
+- Lỗi xảy ra trong khoảng đó (game đóng cửa giữa chừng) cũng hẹn lại 15:05 và không tính là lỗi.
+- Bảo trì **đột xuất** hoặc kéo dài quá 15:05: vừa mở app, game hiện popup *Nhắc nhở – "Máy chủ đang được bảo trì, vui lòng kiên nhẫn và thử lại sau!"* (nút *Xác nhận*). Script nhận ra popup này (ảnh mẫu `templates\popup_baotri.png`, popup do game vẽ nên uiautomator không đọc được chữ) → **dừng lượt ngay, không làm lại, không tính là lỗi**, hẹn lại sau 30 phút (`$MaintRetryMinutes`) cho tới khi hết bảo trì. Telegram gửi kèm ảnh popup: `🛠️ Game đang bảo trì (máy chủ báo bảo trì khi vào game) – không chạy lượt này, không tính là lỗi.` (test thật 19/11 14:10).
 - Giờ bảo trì luôn tính theo **giờ Việt Nam** (`$MaintTimeZone`), dù máy để múi giờ nào.
 
 **Tự kết nối lại Wi-Fi** (thêm 18/11, `ket_noi_mang.ps1`, dùng chung cho script nông trại và bot):
@@ -255,6 +259,8 @@ Các dạng tin khác:
 | Có lỗi | `❌ LỖI: Không tìm thấy hạt khoai tây` (lỗi hiếm gặp từ Windows/ADB có thể là tiếng Anh) |
 | Có mạng lại sau khi mất mạng | `📵 Mất mạng từ … đến … – đã thử lại N lần (không tính là lỗi)` |
 | Chạy đúng giờ bảo trì game (tin chữ, không có ảnh) | `🛠️ Đang giờ bảo trì game (thứ 5 14:00–15:00) – không chạy lượt này.` |
+| Game vừa tải bản cập nhật (thường sau bảo trì) | `⬇️ Game tải bản cập nhật 12 phút` (còn đang tải mà hết 20 phút: `… (chưa xong)` + `❌ LỖI: Game tải bản cập nhật quá 20 phút chưa xong`) |
+| Game báo đang bảo trì (đột xuất / kéo dài, kèm ảnh popup) | `🛠️ Game đang bảo trì (máy chủ báo bảo trì khi vào game) – không chạy lượt này, không tính là lỗi.` + `⏰ Đã tự lập lịch lần tới: … (game đang bảo trì (đột xuất / kéo dài), thử lại sau 30 phút – không tính là lỗi)` |
 | Tin gửi bù | `📨 Tin gửi trễ (lúc đó mất mạng):` + nội dung tin cũ |
 
 Ý nghĩa các dòng tổng kết:
@@ -718,8 +724,12 @@ Cấu hình đầu `ddtank_farm.ps1`:
 | `$NetTestHosts` | `api.telegram.org, www.google.com, 1.1.1.1` | Máy chủ dùng để kiểm tra có Internet (cổng 443, chỉ cần 1 máy trả lời) |
 | `$MaintenanceWindows` | `Thursday 14:00–15:00` | Giờ bảo trì game hằng tuần (giờ Việt Nam). Thêm dòng `@{ Day = '...'; Start = '...'; End = '...' }` nếu có nhiều khung giờ |
 | `$MaintBeforeMin` | `25` | Không bắt đầu chạy trong bao nhiêu phút trước giờ bảo trì (1 lượt ~6 phút + chờ chín tối đa 12 phút) |
-| `$MaintAfterMin` | `15` | Chạy lại sau giờ bảo trì bao nhiêu phút (đặt `0` = chạy ngay lúc hết bảo trì) |
+| `$MaintAfterMin` | `5` | Chạy lại sau giờ bảo trì bao nhiêu phút (đặt `0` = chạy ngay lúc hết bảo trì) |
 | `$MaintTimeZone` | `SE Asia Standard Time` | Múi giờ của giờ bảo trì (UTC+7, Việt Nam) |
+| `$MaintRetryMinutes` | `30` | Game báo đang bảo trì ngoài khung giờ trên (đột xuất / kéo dài) → thử lại sau bao nhiêu phút |
+| `$UpdateWaitMin` | `20` | Game đang tải bản cập nhật thì chờ tối đa bao nhiêu phút mỗi lượt (không tắt app) |
+| `$UpdateMaxScore` | `12` | Ngưỡng khớp ảnh mẫu màn hình cập nhật (màn hình thật: ≤ 2,7; màn hình khác: ≥ 36) |
+| `$MaintPopupMaxScore` | `12` | Ngưỡng khớp ảnh mẫu popup bảo trì (popup thật: 0; các popup *Nhắc nhở* khác: ≥ 18,6) |
 | `$MinFreeRamMB` | `2500` | RAM trống tối thiểu trước khi mở MuMu; thấp hơn thì cảnh báo trên Telegram (vẫn chạy) |
 | `$MinFreeDiskGB` | `5` | Dung lượng trống tối thiểu ổ C: và ổ chứa script; thấp hơn thì cảnh báo |
 | `$KeepLogDays` | `14` | Xoá log + ảnh các lần chạy cũ hơn bao nhiêu ngày (0 = không xoá) |
@@ -735,21 +745,10 @@ Cấu hình đầu `ddtank_farm.ps1`:
 
 ## 10. Việc cần làm (TODO)
 
-### Test trường hợp máy chủ game bảo trì → cập nhật script
+### ✅ Test trường hợp máy chủ game bảo trì (xong 19/11/2026)
 
-- **Khi nào:** giờ bảo trì thật gần nhất, **thứ 5 19/11/2026, 14:00–15:00** (giờ Việt Nam). Lỡ thì làm vào thứ 5 tuần sau.
-- **Ai làm:** bạn báo Claude lúc game đang bảo trì, Claude chạy test trên máy.
-- **Mục tiêu:** script **tự nhận ra màn hình bảo trì** của game, kể cả bảo trì **đột xuất** hoặc **kéo dài quá 15:15**. Khi đó:
-  - Không tính là lỗi, không dừng chuỗi tự lập lịch sau 3 lần.
-  - Hẹn lại sau một khoảng (vd 30 phút) cho tới khi hết bảo trì.
-  - Telegram báo rõ *"🛠️ Game đang bảo trì"* thay vì *"❌ LỖI: Không vào được sảnh chính sau 4 phút"*.
-- **Các bước test dự kiến:**
-  1. Trong giờ bảo trì, chạy `run.bat -Account akaka -LoginOnly -KeepDevice -StepShots`. Chế độ `-LoginOnly` không bị chặn bởi giờ bảo trì, nên script vẫn mở game để chụp màn hình.
-  2. Lưu ảnh từng bước + giao diện Android (uiautomator) lúc game báo bảo trì: popup / thông báo / nút bấm hiện ra ở đâu, chữ gì.
-  3. Cắt ảnh mẫu mới (vd `templates\maintenance.png`) hoặc đọc chữ qua uiautomator để nhận diện.
-  4. Sửa `Enter-Game` trong `ddtank_farm.ps1`: thấy màn hình bảo trì thì dừng lượt, kết quả `maintenance` (đã có sẵn cách hẹn lại, không tính lỗi).
-  5. Chạy lại test, cập nhật README (mục 4, 5, 6).
-- **Trong lúc chờ:** giờ bảo trì cố định (thứ 5 14:00–15:00) đã được xử lý bằng cách dời lịch (mục 4, cách 1). Chỉ bảo trì đột xuất hoặc kéo dài mới còn bị tính là lỗi.
+- Làm trong giờ bảo trì thật thứ 5 19/11, 13:58–14:12: chạy `/chay` giả lập (bị chặn, không mở thiết bị, hẹn 15:05 đúng), mở game bằng `-LoginOnly -StayOpen -StepShots` để chụp màn hình bảo trì, cắt ảnh mẫu `popup_baotri.png`, sửa `Enter-Game`, chạy lại cả lượt (tạm tắt khung thứ 5 để giả lập bảo trì đột xuất) → nhận ra popup sau 2 giây, hẹn lại 30 phút, Telegram có ảnh, số lần lỗi giữ nguyên 0.
+- Chi tiết cách xử lý: mục 4 (*Giờ bảo trì game*).
 
 ---
 
@@ -763,7 +762,7 @@ Danh sách đề xuất ngày 18/11/2026. Cập nhật trạng thái mỗi khi l
 
 | # | Nâng cấp | Trạng thái | Ghi chú |
 |---|---|---|---|
-| 1 | Nhận diện màn hình bảo trì của game (kể cả bảo trì đột xuất / kéo dài) | 🔄 | Giờ bảo trì cố định thứ 5 14:00–15:00 đã xử lý (dời lịch, không tính lỗi). Còn nhận diện màn hình bảo trì: chờ test lúc game bảo trì thật (mục 10) |
+| 1 | Nhận diện màn hình bảo trì của game (kể cả bảo trì đột xuất / kéo dài) | ✅ | Giờ bảo trì cố định thứ 5 14:00–15:00: dời lịch, không tính lỗi. Bảo trì đột xuất / kéo dài: nhận ra popup *"Máy chủ đang được bảo trì"* khi mở game, hẹn lại 30 phút, không tính lỗi (test thật 19/11 14:10) |
 | 2 | Không dừng hẳn sau 3 lần lỗi: chuyển sang thử lại mỗi 2 giờ | ⬜ | |
 | 29 | Làm lại từng bước khi lỗi (tối đa 3 lần/bước), hết lần thì khởi động lại thiết bị chạy lại cả lượt, thay vì tắt máy hẹn 30 phút | 🟡 | Logic kiểm tra đúng 12/12 tình huống bằng hàm giả; lượt thật 18/11 16:37 chạy thông suốt với code mới. Chưa gặp lỗi thật để thấy làm lại (mục 4, `$StepRetries`) |
 | 30 | Đóng popup hiện muộn ở sảnh (vd *Báo danh mỗi ngày*); xử lý game tự đăng nhập bằng phiên cũ | ✅ | Gặp và sửa trong lượt 18/11 16:20–16:27. Test lại 18/11 16:51 sau giờ reset ngày (16:00) trên tài khoản server S574 chưa báo danh: đóng popup *Nạp lần đầu* (bấm ✕, không bấm *Nạp ngay*), rồi popup *Báo danh mỗi ngày* hiện 2 lần (lần đầu ✕ thì game đóng dấu *Đã báo danh*, *Còn 12 → 11 lần*; lần sau ✕ mới đóng), vào sảnh, vào nông trại bình thường |
@@ -954,3 +953,7 @@ Nhật ký các lỗi xảy ra khi script chạy thật trên máy (không tính
 | 19/11 08:28 | Lượt xem ruộng (test) báo *"akaka: có ô đã chín"* nhưng thật ra là **ruộng của tài khoản khác**; xong còn **tắt thiết bị đang có người dùng** | Thiết bị đang bật sẵn, game đang ở sảnh của tài khoản khác → script không kiểm tra đang đăng nhập tài khoản nào, vào thẳng nông trại; cuối lượt luôn tắt thiết bị | **Bạn chọn giữ nguyên** (19/11): lượt tự động vẫn chạy khi game đang mở. Tránh mở game trên thiết bị `auto` gần giờ thu hoạch (xem `/lich`) | 🧑 |
 | 19/11 10:43 | Lịch bắp cải (tài khoản 2, chạy mỗi giờ) gặp thiết bị đang bật, bạn đang đánh trận bằng tài khoản 1 → sau 3 phút không thấy sảnh script **tắt app (văng trận)**, đăng xuất; RAM còn 1,1 GB nên ảnh chụp bị cắt cụt (*Ảnh RAW không hợp lệ*), MuMuManager không trả lời → lượt lỗi, chưa thu hoạch, hẹn lại 11:22 | Lượt tự động không kiểm tra thiết bị có người đang dùng (bạn chọn giữ như vậy); lịch chạy mỗi giờ nên dễ trùng lúc bạn chơi; máy thiếu RAM khi 1 thiết bị + Claude | **Bạn chọn giữ nguyên** (19/11 10:55). Khi chơi / câu cá trên `auto` thì gửi `/tamdung <giờ>` trước. Ảnh chụp cắt cụt: **đã sửa** – kiểm tra đủ kích thước, thiếu thì chụp lại ngay (tối đa 3 lần); MuMuManager bận thì hỏi lại 3 lần | 🧑 🟡 |
 | 19/11 10:56 | `/chay <tk> bapcai` (tài khoản 2) lỗi ngay khi bật thiết bị *"MuMuManager không trả lời sau 30 giây (info -v all)"*, và **không có tin Telegram nào** | Vừa bật thiết bị khi máy thiếu RAM, MuMuManager bận; script hỏi trạng thái 1 lần là bỏ cả lượt. Lỗi xảy ra trước khi chụp được ảnh, mà tin Telegram chỉ gửi khi có ảnh | Hỏi trạng thái MuMu tối đa 3 lần (cách 5 giây). Lỗi không có ảnh thì gửi **tin chữ** `❌ LỖI: …`. Chạy lại 11:01 thành công (thu 10 ô, gieo bắp cải, đọc 9 đồng hồ) | 🟡 |
+
+| 19/11 14:01 (test giờ bảo trì) | Mở game lúc máy chủ bảo trì: game hiện popup *"Máy chủ đang được bảo trì…"*; script cũ không nhận ra → sẽ chờ 3 phút × 3 lần rồi báo *"Không vào được sảnh chính"*, tính là lỗi (ngoài khung giờ cố định). Cùng lúc RAM còn ~1 GB, chụp màn hình treo 15 giây 1 lần | Script chỉ biết khung giờ bảo trì cố định, chưa có ảnh mẫu màn hình bảo trì | Thêm ảnh mẫu `popup_baotri.png`; `Enter-Game` thấy popup thì dừng lượt, kết quả `maintenance`, hẹn lại 30 phút, Telegram kèm ảnh. Test lại 14:10–14:11 trên game đang bảo trì: nhận ra sau 2 giây | ✅ |
+| 19/11 15:02 (test sau bảo trì) | Hết bảo trì, game **tải bản cập nhật 90 MB** (*"vui lòng không thoát game"*); script không nhận ra → chờ 3 phút không thấy sảnh, coi là lỗi, **tắt app mở lại** 2 lần (15:06, 15:09) làm đứt quá trình tải. Mạng tải chậm (~1–5 MB/phút) | Script không biết màn hình cập nhật; bước *vào game* chỉ chờ 3 phút | Ảnh mẫu `update_screen.png`; `Enter-Game` thấy màn hình cập nhật thì chờ, gia hạn, không tắt app (tối đa 20 phút), Telegram ghi số phút. Cập nhật xong game tự thoát ra màn hình chính → mở lại app ngay. Đồng thời `/chay` trong khung giờ bảo trì nay vẫn vào game (bảo trì có thể xong sớm). **Test lại 15:14–15:26:** nhận ra màn hình cập nhật, chờ không tắt app; sau đó `/chay` thu hoạch + gieo bắp cải 10/10 bình thường | ✅ |
+| 19/11 15:24 | Telegram báo *"Sau khi thu hoạch: 7 ô"* nhưng thật ra đã thu đủ 10 ô | Chụp màn hình treo giữa lúc thu hoạch (RAM còn 1,1 GB) → bước *thu hoạch* làm lại từ đầu, số ô đã thu ở lần trước (3 ô) không được cộng vào | Chưa sửa (bạn chọn để sau): cộng dồn số ô đã thu qua các lần làm lại bước | ❌ |

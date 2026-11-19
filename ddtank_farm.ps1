@@ -99,8 +99,10 @@ $MaintenanceWindows = @(
     @{ Day = 'Thursday'; Start = '14:00'; End = '15:00' }    # thu 5, 14h-15h
 )
 $MaintBeforeMin = 25    # khong bat dau chay trong 25 phut truoc gio bao tri (1 luot: ~6 phut + cho chin toi da $WaitRipeMinutes)
-$MaintAfterMin  = 15    # cho them 15 phut sau gio bao tri (phong bao tri keo dai)
+$MaintAfterMin  = 5     # cho them 5 phut sau gio bao tri (phong bao tri keo dai)
 $MaintTimeZone  = 'SE Asia Standard Time'   # UTC+7: Ha Noi / Bangkok
+$MaintRetryMinutes = 30  # game BAO dang bao tri (popup "May chu dang duoc bao tri") ngoai khung tren (dot xuat / keo dai) -> thu lai sau bay nhieu phut, khong tinh loi
+$MaintPopupMaxScore = 12 # nguong khop mau popup bao tri (templates\popup_baotri.png)
 
 # Kiem tra may truoc khi mo MuMu (thiet bi can ~2-3 GB RAM). Thieu thi van chay nhung canh bao tren Telegram.
 $MinFreeRamMB  = 2500   # RAM trong (Available) toi thieu
@@ -125,7 +127,10 @@ $RetryBudgetMin = 35    # luot da chay qua 35 phut thi thoi thu lai (Task Schedu
 $SafetyRunMin   = 50    # dau luot hen san 1 luot du phong sau 50 phut (luot bi treo/bi diet van con luot sau). 0 = tat
 $QueueWaitMin   = 15    # trung luot dang chay (tai khoan khac) -> cho toi da 15 phut roi chay luon; qua thi hen lai sau $RetryMinutes
 # Loi ma thu lai cung vo ich -> bao loi luon (thieu cau hinh / tai khoan / het hat / sai ten hat)
-$NoRetryErrors = 'chưa truyền -Account|chưa được app lưu mật khẩu|Không thấy tài khoản|Không tìm thấy hạt|Không có loại hạt'
+$NoRetryErrors = 'chưa truyền -Account|chưa được app lưu mật khẩu|Không thấy tài khoản|Không tìm thấy hạt|Không có loại hạt|bản cập nhật quá'
+# Game tai ban cap nhat (thuong ngay sau bao tri, vd 19/11 15:02: 90 MB) -> cho, KHONG tat app (game ghi "vui long khong thoat game").
+$UpdateWaitMin  = 20     # cho game tai cap nhat toi da bay nhieu phut moi luot (dem tu lan dau thay man hinh cap nhat)
+$UpdateMaxScore = 12     # nguong khop mau templates\update_screen.png (dong "Dang cap nhat den phien ban" goc duoi trai)
 
 # Loai hat (danh sach trong hat_giong.ps1). -Seed / "/chay <tk> <hat>" chon cho 1 lan chay; khong ghi -> $DefaultSeed.
 # Hat da chon het (khong con trong bang) -> gieo $DefaultSeed thay. Gieo xong hat khac khoai ma con o trong
@@ -323,7 +328,7 @@ function Can-Retry([string]$msg) {
     if ($script:Paused -or $script:InMaintenance) { return $false }
     if ($msg -match $NoRetryErrors) { return $false }
     if (((Get-Date) - $script:StartTime).TotalMinutes -gt $RetryBudgetMin) { Log "Da chay qua $RetryBudgetMin phut -> khong thu lai nua"; return $false }
-    if (Get-MaintenanceEnd (Get-Date)) { return $false }
+    if (-not $Manual -and (Get-MaintenanceEnd (Get-Date))) { return $false }   # chay tay trong gio bao tri (bao tri xong som) van lam lai buoc loi
     if (-not (Test-Internet)) { return $false }
     return $true
 }
@@ -488,6 +493,11 @@ function Build-Summary($sowTime, $nextLine) {
         $lines += "🌱 Hạt cố định của $($Account): $(Seed-Text $script:SeedKey) (về khoai: /chay $Account khoai)"
     }
     if ($script:QueuedMin) { $lines += "⏳ Trùng lượt đang chạy → đã xếp hàng chờ $($script:QueuedMin) phút" }
+    if ($script:UpdateStart) {
+        $ue = if ($script:UpdateEnd) { $script:UpdateEnd } else { Get-Date }
+        $um = [math]::Max(1, [int][math]::Round(($ue - $script:UpdateStart).TotalMinutes))
+        $lines += "⬇️ Game tải bản cập nhật $um phút$(if (-not $script:UpdateEnd) { ' (chưa xong)' })"
+    }
     if ($script:OfflineNote) { $lines += $script:OfflineNote }
     foreach ($w in @($script:RetryNotes)) { if ($w) { $lines += $w } }
     if ($script:NetRepairNote) { $lines += $script:NetRepairNote }
@@ -824,6 +834,25 @@ function Login-7Road {
     Nap 5
 }
 
+# Game bao "May chu dang duoc bao tri, vui long kien nhan va thu lai sau!" (popup Nhac nho hien ngay khi mo app, 19/11 14:01)
+# -> dung luot, ket qua maintenance (khong tinh loi, khong thu lai trong luot), hen lai sau gio bao tri / $MaintRetryMinutes phut
+$script:MaintSeen = $false
+$script:UpdateStart = $null; $script:UpdateEnd = $null   # luc bat dau / xong cho game tai ban cap nhat
+# Game co dang o tren man hinh khong (19/11 15:15: cap nhat xong game tu thoat ra man hinh chinh Android -> script ngoi cho 3 phut)
+function Test-GameForeground {
+    try { $o = Invoke-AdbTimed "-s $($script:Serial) shell dumpsys window" 15 } catch { return $true }   # khong hoi duoc -> coi nhu van o game
+    return [bool]($o -match ("mCurrentFocus=Window\{[^}]*" + [regex]::Escape($Package)))
+}
+function Test-UpdateScreen { (Find "update_screen" $UpdateMaxScore @(0,800,600,100)).Count -gt 0 }
+function Test-MaintPopup { (Find "popup_baotri" $MaintPopupMaxScore @(380,300,840,300)).Count -gt 0 }
+function Stop-ForMaintenance {
+    Log "Game bao may chu dang bao tri -> dung luot nay (khong tinh loi)"
+    Step "bao_tri"
+    try { Save-Shot "bao_tri" } catch {}
+    $script:InMaintenance = $true; $script:MaintSeen = $true
+    throw "Máy chủ game đang bảo trì (game báo: Máy chủ đang được bảo trì, vui lòng thử lại sau)"
+}
+
 $script:LoggedInThisRun = $false   # luot nay da tu dang nhap 7Road bang $Account chua
 $script:LogoutTries = 0
 function Enter-Game {
@@ -834,6 +863,27 @@ function Enter-Game {
     while ((Get-Date) -lt $deadline) {
         Nap 1
         Snap | Out-Null
+        if (Test-MaintPopup) { Stop-ForMaintenance }
+        # Game dang tai / giai nen ban cap nhat -> cho tiep (gia han $deadline), khong tat app; tong toi da $UpdateWaitMin phut
+        if (Test-UpdateScreen) {
+            if (-not $script:UpdateStart) {
+                $script:UpdateStart = Get-Date
+                Step "cap_nhat"
+                Log "Game dang tai ban cap nhat -> cho, khong tat app (toi da $UpdateWaitMin phut)"
+            }
+            $script:UpdateEnd = $null
+            if (((Get-Date) - $script:UpdateStart).TotalMinutes -ge $UpdateWaitMin) {
+                Save-Shot "loi_cap_nhat"
+                throw "Game tải bản cập nhật quá $UpdateWaitMin phút chưa xong"
+            }
+            $deadline = (Get-Date).AddMinutes(3); $idle = 0
+            Nap 5
+            continue
+        }
+        if ($script:UpdateStart -and -not $script:UpdateEnd) {
+            $script:UpdateEnd = Get-Date
+            Log "Game cap nhat xong sau $([math]::Max(1, [int][math]::Round(($script:UpdateEnd - $script:UpdateStart).TotalMinutes))) phut"
+        }
         if ((Find "btn_friends" 15).Count -and -not (Find "popup_close" 12).Count) {
             Log "Da vao sanh chinh"
             Step "sanh_chinh"
@@ -881,6 +931,13 @@ function Enter-Game {
         # Khong nhan ra man hinh nao: co the dang mo san hop dang nhap 7Road (giao dien Android)
         $idle++
         if ($idle % 3 -eq 0) {
+            if (-not (Test-GameForeground)) {
+                Log "Game khong con tren man hinh (vd tu thoat sau khi cap nhat) -> mo lai app"
+                Step "game_thoat"
+                [void](Invoke-MuMu "control -v $($script:Index) app launch -pkg $Package" 60)
+                Nap 3
+                continue
+            }
             $ui = Get-UiNodes
             if ((Find-Ui $ui "txt_account") -or (Find-Ui $ui "txt_login_des" "7Road Login")) {
                 Login-7Road
@@ -1366,8 +1423,12 @@ function Plan-NextRun([string]$outcome) {
         }
         'maintenance' {
             $at = Get-MaintenanceEnd $now
-            if (-not $at) { $at = $now.AddMinutes($ErrorRetryMinutes) }
-            $why = "game bảo trì, chạy lại sau giờ bảo trì – không tính là lỗi"
+            if ($at) { $why = "game bảo trì, chạy lại sau giờ bảo trì – không tính là lỗi" }
+            else {
+                # game bao bao tri ngoai khung gio co dinh (dot xuat / keo dai) -> thu lai cho toi khi het
+                $at = $now.AddMinutes($MaintRetryMinutes)
+                $why = "game đang bảo trì (đột xuất / kéo dài), thử lại sau $MaintRetryMinutes phút – không tính là lỗi"
+            }
         }
         default {
             if ($retries -lt $MaxRetries) {
@@ -1613,8 +1674,9 @@ try {
         $pu = Get-PauseUntil
         if ($pu) { $script:Paused = $true; throw "Đang tạm dừng tới $($pu.ToString('HH:mm dd/MM')) – lượt tự động này không chạy" }
     }
-    # Dang gio bao tri game -> khong chay, hen lai sau gio bao tri (vd /chay hoac lich chay bu roi dung gio bao tri)
-    if (-not $SkipLaunch -and -not $LoginOnly) {
+    # Lich TU DONG roi vao gio bao tri game (vd lich chay bu) -> khong chay, hen lai sau gio bao tri.
+    # Chay tay (/chay, /xemruong = -Manual) van vao game: bao tri co the xong som; con bao tri thi Enter-Game thay popup -> dung, khong tinh loi
+    if (-not $SkipLaunch -and -not $LoginOnly -and -not $Manual) {
         $mEnd = Get-MaintenanceEnd (Get-Date)
         if ($mEnd) {
             $script:InMaintenance = $true
@@ -1748,11 +1810,19 @@ finally {
             # Ban da chu dong tam dung -> khong nhan tin moi lan, chi ghi log
             Log "Dang tam dung -> khong gui Telegram. $nextLine"
         } elseif ($script:InMaintenance) {
-            # Chua mo thiet bi -> khong co anh: gui 1 tin chu
-            $msg = "🚜 DDTank [$Account] $(Get-Date -Format 'dd/MM HH:mm')`n🛠️ Đang giờ bảo trì game ($(Maint-Text)) – không chạy lượt này."
-            if ($nextLine) { $msg += "`n$nextLine" }
-            Log ("Telegram <- (tin chu)`n    " + ($msg -replace "`n", "`n    "))
-            [void](Post-Telegram @() $msg)
+            if ($script:MaintSeen) {
+                # Da mo game va game bao bao tri -> gui kem anh popup
+                $msg = "🚜 DDTank [$Account] $(Get-Date -Format 'dd/MM HH:mm')`n🛠️ Game đang bảo trì (máy chủ báo bảo trì khi vào game) – không chạy lượt này, không tính là lỗi."
+                if ($nextLine) { $msg += "`n$nextLine" }
+                Log ("Telegram <- $(if ($script:LastShot) { Split-Path $script:LastShot -Leaf })`n    " + ($msg -replace "`n", "`n    "))
+                [void](Post-Telegram @($script:LastShot) $msg)
+            } else {
+                # Chua mo thiet bi -> khong co anh: gui 1 tin chu
+                $msg = "🚜 DDTank [$Account] $(Get-Date -Format 'dd/MM HH:mm')`n🛠️ Đang giờ bảo trì game ($(Maint-Text)) – không chạy lượt này."
+                if ($nextLine) { $msg += "`n$nextLine" }
+                Log ("Telegram <- (tin chu)`n    " + ($msg -replace "`n", "`n    "))
+                [void](Post-Telegram @() $msg)
+            }
         } elseif ($script:Outcome -eq 'offline') {
             # Mat mang tu dau: khong co anh, khong gui duoc -> chi ghi log; co mang lai se bao 1 dong "📵 Mat mang tu ..."
             Send-Telegram $script:Photos (Build-Summary $script:SowTime $nextLine) 0
