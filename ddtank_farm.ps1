@@ -123,6 +123,7 @@ $StepRetries   = 3      # moi buoc nho (vao game, mo nong trai, thu hoach, gieo 
 $InRunRetries  = 1      # het lan thu cua 1 buoc -> khoi dong lai thiet bi va chay lai ca luot (1 lan)
 $RetryBudgetMin = 35    # luot da chay qua 35 phut thi thoi thu lai (Task Scheduler diet luot sau 45 phut)
 $SafetyRunMin   = 50    # dau luot hen san 1 luot du phong sau 50 phut (luot bi treo/bi diet van con luot sau). 0 = tat
+$QueueWaitMin   = 15    # trung luot dang chay (tai khoan khac) -> cho toi da 15 phut roi chay luon; qua thi hen lai sau $RetryMinutes
 # Loi ma thu lai cung vo ich -> bao loi luon (thieu cau hinh / tai khoan / het hat / sai ten hat)
 $NoRetryErrors = 'chưa truyền -Account|chưa được app lưu mật khẩu|Không thấy tài khoản|Không tìm thấy hạt|Không có loại hạt'
 
@@ -451,6 +452,10 @@ function Build-Summary($sowTime, $nextLine) {
         $lines += "🌾 Thu hoạch tiếp theo: chưa xác định (lần này không gieo)"
     }
     foreach ($w in @($script:SeedNotes | Select-Object -Unique)) { if ($w) { $lines += $w } }
+    if (-not $ViewOnly -and $Account -and $script:SeedKey -and $script:SeedKey -ne $DefaultSeed) {
+        $lines += "🌱 Hạt cố định của $($Account): $(Seed-Text $script:SeedKey) (về khoai: /chay $Account khoai)"
+    }
+    if ($script:QueuedMin) { $lines += "⏳ Trùng lượt đang chạy → đã xếp hàng chờ $($script:QueuedMin) phút" }
     if ($script:OfflineNote) { $lines += $script:OfflineNote }
     foreach ($w in @($script:RetryNotes)) { if ($w) { $lines += $w } }
     if ($script:NetRepairNote) { $lines += $script:NetRepairNote }
@@ -1510,28 +1515,56 @@ if ($TestTelegram) {
     exit 0
 }
 
-# Loai hat lan nay: sai ten thi bao loi ngay, khong mo thiet bi, khong dong vao lich
+# Loai hat: -Seed (sai ten thi bao loi ngay, khong mo thiet bi, khong dong vao lich) -> LUU CO DINH cho tai khoan
+# (state\<tk>.hat, cac luot tu dong sau gieo hat nay; -Seed khoai = ve mac dinh). Khong co -Seed -> hat da luu, khong co -> $DefaultSeed
 $script:SeedKey = $DefaultSeed
+$script:SeedFrom = 'mặc định'
 if ($Seed) {
     $script:SeedKey = ConvertTo-SeedKey $Seed
     if (-not $script:SeedKey) { Log "LOI: Không có loại hạt '$Seed'. Các loại: $(Get-SeedListText)"; exit 1 }
+    $script:SeedFrom = 'chọn lần này'
+    if ($Account) { Set-AccountSeed (Join-Path $Root "state") $Account $script:SeedKey $DefaultSeed; $script:SeedFrom = 'đã lưu cố định cho tài khoản' }
+} elseif ($Account) {
+    $k = Get-AccountSeed (Join-Path $Root "state") $Account
+    if ($k) { $script:SeedKey = $k; $script:SeedFrom = 'cố định của tài khoản' }
 }
 
-# Chi 1 lan chay mot luc (lich tu dong va lenh /chay tu bot Telegram co the trung nhau)
+# Chi 1 lan chay mot luc tren thiet bi (lich tu dong va lenh /chay tu bot Telegram co the trung nhau).
+# Trung luot -> XEP HANG CHO luot kia xong roi chay luon (toi da $QueueWaitMin phut), khong chay song song:
+# may 7,9 GB RAM, moi thiet bi MuMu 3 GB -> 2 thiet bi cung luc se het RAM (19/11: chon xep hang thay vi dung them alt3).
 $farmMutex = New-Object System.Threading.Mutex($false, "Local\DDTankFarmRun")
 $gotMutex = $false
 try { $gotMutex = $farmMutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $gotMutex = $true }
 if (-not $gotMutex) {
-    Log "Dang co mot lan chay khac -> thoat, khong chay chong"
-    [void](Plan-NextRun 'busy')   # lich tu dong cua tai khoan nay khong bi mat: hen lai sau vai phut
-    exit 2
+    # Chinh tai khoan nay dang chay (vd /chay trung lich tu dong) -> khong xep hang chay lai lan nua
+    $same = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object {
+        $_.ProcessId -ne $PID -and $_.CommandLine -match 'ddtank_farm\.ps1' -and $Account -and
+        $_.CommandLine -match ('-Account\s+"?' + [regex]::Escape($Account) + '"?(\s|$)') })
+    if ($same.Count) {
+        Log "Tai khoan $Account dang co luot chay khac (PID $($same[0].ProcessId)) -> thoat, luot do se tu hen lich"
+        exit 2
+    }
+    $others = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object {
+        $_.ProcessId -ne $PID -and $_.CommandLine -match 'ddtank_farm\.ps1' } | ForEach-Object { if ($_.CommandLine -match '-Account\s+"?([^"\s]+)') { $Matches[1] } })
+    Log "Dang co luot chay khac ($($others -join ', ')) -> xep hang cho toi da $QueueWaitMin phut"
+    $qStart = Get-Date
+    while (-not $gotMutex -and ((Get-Date) - $qStart).TotalMinutes -lt $QueueWaitMin) {
+        try { $gotMutex = $farmMutex.WaitOne(30000) } catch [System.Threading.AbandonedMutexException] { $gotMutex = $true }
+    }
+    if (-not $gotMutex) {
+        Log "Cho $QueueWaitMin phut van chua toi luot -> hen lai"
+        [void](Plan-NextRun 'busy')   # lich tu dong cua tai khoan nay khong bi mat: hen lai sau vai phut
+        exit 2
+    }
+    $script:QueuedMin = [math]::Max(1, [int][math]::Round(((Get-Date) - $qStart).TotalMinutes))
+    Log "Toi luot sau khi cho $($script:QueuedMin) phut"
 }
 
 $exitCode = 0
 $script:StartTime = Get-Date
 $harvested = 0
 try {
-    Log "===== BAT DAU (tai khoan: $(if ($Account) { $Account } else { '-' })$(if ($ViewOnly) { ', chi xem ruong' } else { ", hat: $($script:SeedKey)" })$(if ($Manual) { ', chay tay' })) ====="
+    Log "===== BAT DAU (tai khoan: $(if ($Account) { $Account } else { '-' })$(if ($ViewOnly) { ', chi xem ruong' } else { ", hat: $($script:SeedKey) ($($script:SeedFrom))" })$(if ($Manual) { ', chay tay' })) ====="
     try { Clean-OldLogs } catch { Log "Don log loi: $($_.Exception.Message)" }
     Clear-StaleAdb
     # Dang /tamdung -> lich tu dong khong chay (chay tay -Manual / xem ruong van chay), hen lai khi het tam dung

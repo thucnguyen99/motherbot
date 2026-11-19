@@ -87,7 +87,7 @@ run.bat -Account <tên tài khoản 7Road> [tuỳ chọn]
 | Tham số | Ý nghĩa |
 |---|---|
 | `-Account <tên>` | Tài khoản 7Road đã lưu trong app. **Luôn truyền vào**, bắt buộc khi game đòi đăng nhập |
-| `-Seed <loại hạt>` | Loại hạt gieo lần này: `khoai` (mặc định), `le`, `nho`, `tao`, `thanhlong`, `ngo`, `bapcai`, `catim` (gõ có dấu cũng được, vd `"bắp cải"`). Chỉ áp dụng cho lần chạy này, lượt tự động sau vẫn gieo khoai. Xem *Gieo nhiều loại hạt* ở mục 4 |
+| `-Seed <loại hạt>` | Loại hạt gieo lần này: `khoai` (mặc định), `le`, `nho`, `tao`, `thanhlong`, `ngo`, `bapcai`, `catim` (gõ có dấu cũng được, vd `"bắp cải"`). **Lưu cố định cho tài khoản**: các lượt tự động sau cũng gieo loại này, `-Seed khoai` để về mặc định. Xem *Gieo nhiều loại hạt* ở mục 4 |
 | `-StepShots` | Lưu ảnh màn hình ở **từng bước** vào `logs\` để kiểm tra |
 | `-KeepDevice` | Không tắt thiết bị khi xong (để xem/test). App DDTank vẫn bị tắt |
 | `-LoginOnly` | Chỉ đăng nhập tới sảnh chính rồi dừng, không vào nông trại, không gửi Telegram |
@@ -130,7 +130,7 @@ Mỗi lần chạy xong, script **tự hẹn lần chạy sau** của chính tà
 | Lỗi (đăng nhập, không thấy nút…) | **Làm lại ngay bước bị lỗi, tối đa 3 lần** (vào game: tắt app mở lại; mở nông trại / thu hoạch / gieo hạt: đóng popup đang che). Một bước lỗi đủ 3 lần thì khởi động lại thiết bị, chạy lại cả lượt 1 lần. Vẫn lỗi mới hẹn lại sau 30 phút; lỗi 3 lượt liên tiếp thì dừng chuỗi và báo Telegram. Telegram ghi từng lần làm lại *"🔁 Bước … lỗi lần N: … → làm lại bước"*. Lỗi mà thử lại cũng vô ích (chưa lưu mật khẩu, không thấy tài khoản, hết hạt khoai), mất mạng, giờ bảo trì, hoặc lượt đã chạy quá 35 phút thì không làm lại |
 | **Mất mạng Internet** (lúc bắt đầu, hoặc gặp lỗi mà lúc đó không có mạng) | Sau 10 phút, **không tính vào 3 lần lỗi**, thử lại mãi tới khi có mạng |
 | **Giờ bảo trì game** (thứ 5, 14:00–15:00 giờ Việt Nam) | Sau giờ bảo trì (15:15), **không tính vào 3 lần lỗi** |
-| Đang có lượt khác chạy (vd 2 tài khoản trùng giờ) | Sau 10 phút |
+| Đang có lượt khác chạy (vd 2 tài khoản trùng giờ, hoặc `/chay` lúc lịch đang chạy) | **Xếp hàng chờ** lượt kia xong rồi chạy luôn trên thiết bị `auto` (tối đa `$QueueWaitMin` = 15 phút, quá thì hẹn lại sau 10 phút). Tin Telegram có dòng `⏳ Trùng lượt đang chạy → đã xếp hàng chờ N phút`. Trùng **chính tài khoản đó** (vd `/chay` đúng lúc lịch của nó đang chạy) thì lượt sau tự thoát. Không chạy song song trên thiết bị thứ 2 (`alt3`): máy 7,9 GB RAM, mỗi thiết bị MuMu 3 GB, 2 thiết bị cùng lúc sẽ hết RAM (19/11) |
 | Đang **tạm dừng** (`/tamdung <giờ>` trên Telegram) | Lúc hết tạm dừng + 1 phút, không gửi Telegram. `/chay` và `/xemruong` vẫn chạy được. `/tiep` bật lại sớm và kéo các lượt bị dời về chạy ngay (2 phút nữa) |
 
 **Hẹn trước giờ chín 5 phút + chờ 12 phút** (`$AutoDelayMinutes = -5`, `$WaitRipeMinutes = 12`). Ví dụ khoai chín 16:22:
@@ -176,7 +176,8 @@ Nhờ vậy khoai được thu gần như **đúng lúc chín** và gieo lại n
 - Giờ chín của lần gieo gần nhất lưu ở `state\<tài khoản>.json`.
 
 **Gieo nhiều loại hạt** (thêm 19/11):
-- Chọn hạt cho **1 lần chạy**: `/chay akaka bapcai` trên Telegram hoặc `run.bat -Account akaka -Seed bapcai`. Không ghi hạt thì gieo `$DefaultSeed` (khoai). Lượt tự động sau đó vẫn gieo khoai.
+- Chọn hạt: `/chay akaka bapcai` trên Telegram hoặc `run.bat -Account akaka -Seed bapcai`. Lựa chọn được **lưu cố định cho tài khoản** (`state\<tài khoản>.hat`): các lượt tự động sau của tài khoản đó cũng gieo loại này. Về khoai: `/chay akaka khoai` (xoá file `.hat`). Tài khoản chưa chọn bao giờ thì gieo `$DefaultSeed` (khoai). `/lich` ghi loại hạt cạnh từng tài khoản, tin Telegram có dòng `🌱 Hạt cố định của …`.
+- Mẹo test: hạt lớn nhanh (bắp cải ~1 tiếng) cho nhiều lượt chạy thật trong ngày để cải thiện script. Mỗi lượt chiếm thiết bị `auto` ~6–10 phút.
 - Loại hạt có mẫu (`hat_giong.ps1`): `khoai` 🥔, `le` 🍐, `nho` 🍇, `tao` 🍎, `thanhlong` 🐉, `ngo` 🌽, `bapcai` 🥬, `catim` 🍆. Gõ có dấu / có cách cũng được (`thanh long`, `bắp cải`). Sai tên thì bot trả lời danh sách, không chạy.
 - Script tìm hạt trong bảng *gieo hạt* bằng ảnh mẫu (cuộn xuống rồi cuộn lên nếu chưa thấy). Mỗi tài khoản có danh sách hạt khác nhau, thứ tự khác nhau, không sao.
 - **Hết loại hạt đã chọn** (không còn trong bảng) → gieo khoai thay, Telegram ghi `⚠️ Hết hạt … → gieo 🥔 khoai tây thay`.
@@ -355,7 +356,7 @@ Bot tự bật mỗi lần đăng nhập Windows, bị lỗi thì tự khởi đ
 
 | Lệnh | Tác dụng |
 |---|---|
-| `/chay <tài khoản> [loại hạt]` | Chạy ngay thu hoạch + trồng, vd `/chay akaka`, `/chay akaka bapcai`, `/chay akaka thanh long`. Không ghi hạt = khoai (mục 4, *Gieo nhiều loại hạt*). Xong có ảnh gửi về như bình thường. Chạy được cả khi đang `/tamdung` |
+| `/chay <tài khoản> [loại hạt]` | Chạy ngay thu hoạch + trồng, vd `/chay akaka`, `/chay akaka bapcai`, `/chay akaka thanh long`. Ghi hạt = **lưu cố định** cho tài khoản (các lượt tự động sau cũng gieo loại đó), `/chay akaka khoai` để về khoai. Không ghi hạt = hạt đã lưu, chưa lưu thì khoai (mục 4, *Gieo nhiều loại hạt*). Xong có ảnh gửi về như bình thường. Chạy được cả khi đang `/tamdung` |
 | `/xemruong <tài khoản>` | Vào game chụp ruộng gửi về (~3–4 phút): có ô chín chưa (🖐️ bàn tay), cây đang lớn mấy ô, ruộng trống, **bao nhiêu ô cần tưới 💧 / có sâu 🐛**. Có giọt nước / con sâu thì **bấm 1 cái để tưới cây + bắt sâu cả ruộng** (game xử lý cả ruộng chỉ với 1 lần bấm) và gửi thêm ảnh sau khi chăm sóc. **Không thu hoạch, không gieo, không đổi lịch** |
 | `/trangthai` | Script có đang chạy không (tài khoản, từ lúc nào), thiết bị bật/tắt, lần chạy tự động tới, 6 dòng log cuối |
 | `/maytinh` | Sức khoẻ máy: RAM trống + 3 chương trình tốn RAM nhất, CPU, ổ đĩa, thời gian máy đã chạy, số lần tắt bất thường / màn hình xanh 7 ngày qua (kèm mã lỗi), Wi-Fi + số lần rớt 24 giờ, VPN, MuMu, bot, tự đăng nhập bật/tắt |
@@ -676,7 +677,7 @@ ddtank-farm\
 ├─ README.md              tài liệu này
 ├─ templates\             ảnh mẫu (chụp ở 1600x900); seed_<tên>.png = hạt giống, timer_digits.txt = mẫu chữ số đồng hồ ô đất
 ├─ logs\                  log + ảnh mỗi lần chạy
-├─ state\                 giờ khoai chín từng tài khoản (tự lập lịch), file .off = đã /huylich, .offline = đang mất mạng,
+├─ state\                 <tk>.hat = hạt cố định của tài khoản; giờ khoai chín từng tài khoản (tự lập lịch), file .off = đã /huylich, .offline = đang mất mạng,
 │                         lich_su.jsonl = lịch sử mọi lượt chạy (/thongke), _tamdung.txt = đang /tamdung tới giờ nào
 │                         (logs\telegram_cho_gui\ = tin Telegram chờ gửi bù khi có mạng)
 ├─ backup\                bản sao các phiên bản cũ (xem mục 6)

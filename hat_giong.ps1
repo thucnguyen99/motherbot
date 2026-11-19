@@ -28,3 +28,18 @@ function ConvertTo-SeedKey([string]$s) {
 }
 
 function Get-SeedListText { ($SeedTypes.Keys | ForEach-Object { "$_ $($SeedTypes[$_].Icon)" }) -join ', ' }
+
+# Hat co dinh cua tung tai khoan: state\<tk>.hat (1 dong = key). /chay <tk> <hat> hoac -Seed ghi vao day,
+# cac luot tu dong sau cua tai khoan do gieo hat nay. Khong co file = hat mac dinh ($DefaultSeed, khoai).
+function Get-AccountSeed([string]$StateDir, [string]$Acc) {
+    $f = Join-Path $StateDir "$Acc.hat"
+    if (-not (Test-Path $f)) { return $null }
+    $k = ConvertTo-SeedKey ((Get-Content $f -Raw -ErrorAction SilentlyContinue) -replace '\s', '')
+    return $k
+}
+function Set-AccountSeed([string]$StateDir, [string]$Acc, [string]$Key, [string]$DefaultKey = 'khoai') {
+    $f = Join-Path $StateDir "$Acc.hat"
+    if (-not $Key -or $Key -eq $DefaultKey) { Remove-Item $f -Force -ErrorAction SilentlyContinue; return }
+    New-Item -ItemType Directory -Force $StateDir | Out-Null
+    Set-Content -Path $f -Value $Key -Encoding ASCII
+}

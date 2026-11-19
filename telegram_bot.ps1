@@ -140,7 +140,9 @@ function Get-ScheduleLines {
             $kind = "lịch cố định"
             try { $iv = [Xml.XmlConvert]::ToTimeSpan($t.Triggers[0].Repetition.Interval); $kind += ", mỗi {0}:{1:D2}" -f [int][Math]::Floor($iv.TotalHours), $iv.Minutes } catch {}
         } else { $kind = "tự lập lịch" }
-        $out += "⏰ ${acc}: $next ($kind)"
+        $k = Get-AccountSeed $StateDir $acc
+        $seedTxt = if ($k) { ", gieo $($SeedTypes[$k].Icon) $($SeedTypes[$k].Name)" } else { "" }
+        $out += "⏰ ${acc}: $next ($kind$seedTxt)"
     }
     if (-not $out.Count) { $out += "⏰ Chưa có lịch tự động nào" }
     $off = @(Get-ChildItem (Join-Path $StateDir "*.off") -ErrorAction SilentlyContinue | ForEach-Object { $_.BaseName })
@@ -277,7 +279,7 @@ function Get-Keyboard {
 
 $Help = @"
 🤖 Lệnh bot DDTank:
-/chay <tài khoản> [loại hạt] – chạy ngay thu hoạch + trồng (vd: /chay akaka, /chay akaka nho). Không ghi hạt = khoai. Xong tự lập lịch lần sau lúc cây chín
+/chay <tài khoản> [loại hạt] – chạy ngay thu hoạch + trồng (vd: /chay akaka, /chay akaka nho). Ghi hạt = lưu cố định cho tài khoản, các lượt tự động sau cũng gieo loại đó (về khoai: /chay akaka khoai). Xong tự lập lịch lần sau lúc cây chín
    Loại hạt: $(Get-SeedListText)
 /xemruong <tài khoản> – vào game chụp ruộng, không thu hoạch / gieo, không đổi lịch (vd: /xemruong akaka)
 /trangthai – script có đang chạy không, thiết bị, lịch, log gần nhất
@@ -308,11 +310,14 @@ function Handle([string]$text) {
         '/xemruong' {
             if ($arg.Count -ne 1 -or $arg[0] -notmatch $ValidAcc) { Reply "Cách dùng: /xemruong <tài khoản>   vd: /xemruong akaka"; return }
             $run = @(Get-FarmProcs)
-            if ($run.Count) { Reply "⏳ Script đang chạy rồi (PID $($run[0].ProcessId)), chờ xong rồi gửi lại. Xem /trangthai"; return }
+            # tai khoan nay dang chay -> tu choi; tai khoan khac dang chay -> luot moi tu xep hang cho (toi da 15 phut, ddtank_farm.ps1)
+            $mine = @($run | Where-Object { $_.CommandLine -match ('-Account\s+"?' + [regex]::Escape($arg[0]) + '"?(\s|$)') })
+            if ($mine.Count) { Reply "⏳ Tài khoản $($arg[0]) đang có lượt chạy rồi (PID $($mine[0].ProcessId)), chờ xong rồi gửi lại. Xem /trangthai"; return }
+            $queueTxt = if ($run.Count) { "`n⏳ Đang có lượt khác chạy ($((@($run | ForEach-Object { if ($_.CommandLine -match '-Account\s+"?([^"\s]+)') { $Matches[1] } })) -join ', ')) → lượt này xếp hàng, chạy ngay khi lượt kia xong (chờ tối đa 15 phút)." } else { "" }
             $p = Start-Process powershell.exe -WindowStyle Hidden -WorkingDirectory $Root -PassThru -ArgumentList @(
                 '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$Farm`"", '-Account', $arg[0], '-ViewOnly', '-Manual')
             BLog "Xem ruong PID $($p.Id) tai khoan $($arg[0])"
-            Reply "👀 Đang vào game xem ruộng của $($arg[0]) (PID $($p.Id)), khoảng 3–4 phút sẽ có ảnh. Không thu hoạch, không đổi lịch."
+            Reply "👀 Đang vào game xem ruộng của $($arg[0]) (PID $($p.Id)), khoảng 3–4 phút sẽ có ảnh. Không thu hoạch, không đổi lịch.$queueTxt"
         }
 
         '/tamdung' {
@@ -359,7 +364,10 @@ function Handle([string]$text) {
                 if (-not $seedKey) { Reply "❌ Không có loại hạt '$seedArg'.`nLoại hạt: $(Get-SeedListText)"; return }
             }
             $run = @(Get-FarmProcs)
-            if ($run.Count) { Reply "⏳ Script đang chạy rồi (PID $($run[0].ProcessId)), chờ xong rồi gửi lại. Xem /trangthai"; return }
+            # tai khoan nay dang chay -> tu choi; tai khoan khac dang chay -> luot moi tu xep hang cho (toi da 15 phut, ddtank_farm.ps1)
+            $mine = @($run | Where-Object { $_.CommandLine -match ('-Account\s+"?' + [regex]::Escape($arg[0]) + '"?(\s|$)') })
+            if ($mine.Count) { Reply "⏳ Tài khoản $($arg[0]) đang có lượt chạy rồi (PID $($mine[0].ProcessId)), chờ xong rồi gửi lại. Xem /trangthai"; return }
+            $queueTxt = if ($run.Count) { "`n⏳ Đang có lượt khác chạy ($((@($run | ForEach-Object { if ($_.CommandLine -match '-Account\s+"?([^"\s]+)') { $Matches[1] } })) -join ', ')) → lượt này xếp hàng, chạy ngay khi lượt kia xong (chờ tối đa 15 phút)." } else { "" }
             # /chay = bat lai tu lap lich (neu da /huylich) + xoa dem loi
             $extra = ""
             $offFile = Join-Path $StateDir "$($arg[0]).off"
@@ -371,9 +379,11 @@ function Handle([string]$text) {
             $argv = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$Farm`"", '-Account', $arg[0], '-Manual')
             if ($seedKey) { $argv += @('-Seed', $seedKey) }
             $p = Start-Process powershell.exe -WindowStyle Hidden -WorkingDirectory $Root -PassThru -ArgumentList $argv
-            $seedTxt = if ($seedKey) { " – gieo $($SeedTypes[$seedKey].Icon) $($SeedTypes[$seedKey].Name)" } else { "" }
+            $seedTxt = if ($seedKey -and $seedKey -ne 'khoai') { " – gieo $($SeedTypes[$seedKey].Icon) $($SeedTypes[$seedKey].Name), các lượt tự động sau cũng gieo loại này (về khoai: /chay $($arg[0]) khoai)" }
+                       elseif ($seedKey) { " – gieo 🥔 khoai tây (bỏ hạt cố định nếu có)" }
+                       else { $k = Get-AccountSeed $StateDir $arg[0]; if ($k) { " – gieo $($SeedTypes[$k].Icon) $($SeedTypes[$k].Name) (hạt cố định của tài khoản)" } else { "" } }
             BLog "Chay farm PID $($p.Id) tai khoan $($arg[0]) hat $seedKey"
-            Reply "▶️ Bắt đầu chạy cho tài khoản $($arg[0])$seedTxt (PID $($p.Id)). Xong sẽ có ảnh gửi về.$extra Xem tiến độ: /trangthai"
+            Reply "▶️ Bắt đầu chạy cho tài khoản $($arg[0])$seedTxt (PID $($p.Id)). Xong sẽ có ảnh gửi về.$extra Xem tiến độ: /trangthai$queueTxt"
         }
 
         '/trangthai' {
