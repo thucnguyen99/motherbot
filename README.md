@@ -342,7 +342,7 @@ Bot tự bật mỗi lần đăng nhập Windows, bị lỗi thì tự khởi đ
 | Lệnh | Tác dụng |
 |---|---|
 | `/chay <tài khoản>` | Chạy ngay thu hoạch + trồng, vd `/chay akaka`. Xong có ảnh gửi về như bình thường. Chạy được cả khi đang `/tamdung` |
-| `/xemruong <tài khoản>` | Vào game chụp ruộng gửi về (~3–4 phút): có ô chín chưa, cây đang lớn mấy ô, ruộng trống. **Không thu hoạch, không gieo, không đổi lịch** |
+| `/xemruong <tài khoản>` | Vào game chụp ruộng gửi về (~3–4 phút): có ô chín chưa (🖐️ bàn tay), cây đang lớn mấy ô, ruộng trống, **bao nhiêu ô cần tưới 💧 / có sâu 🐛**. Có giọt nước / con sâu thì **bấm 1 cái để tưới cây + bắt sâu cả ruộng** (game xử lý cả ruộng chỉ với 1 lần bấm) và gửi thêm ảnh sau khi chăm sóc. **Không thu hoạch, không gieo, không đổi lịch** |
 | `/trangthai` | Script có đang chạy không (tài khoản, từ lúc nào), thiết bị bật/tắt, lần chạy tự động tới, 6 dòng log cuối |
 | `/maytinh` | Sức khoẻ máy: RAM trống + 3 chương trình tốn RAM nhất, CPU, ổ đĩa, thời gian máy đã chạy, số lần tắt bất thường / màn hình xanh 7 ngày qua (kèm mã lỗi), Wi-Fi + số lần rớt 24 giờ, VPN, MuMu, bot, tự đăng nhập bật/tắt |
 | `/thongke [số ngày]` | Thống kê theo tài khoản (mặc định 7 ngày, tối đa 60): số lượt, lượt thu hoạch + tổng ô, lượt gieo, chờ cây chín, cây chưa chín, lỗi / mất mạng / bảo trì / tạm dừng, lỗi gần nhất. Lấy từ `state\lich_su.jsonl` |
@@ -687,6 +687,7 @@ Cấu hình đầu `ddtank_farm.ps1`:
 | `$StepRetries` | `3` | Mỗi bước (vào game, mở nông trại, thu hoạch, gieo hạt) lỗi thì làm lại bước đó tối đa bao nhiêu lần |
 | `$InRunRetries` | `1` | Một bước hết số lần làm lại thì khởi động lại thiết bị và chạy lại cả lượt bao nhiêu lần. `0` = không |
 | `$RetryBudgetMin` | `35` | Lượt đã chạy quá bao nhiêu phút thì thôi làm lại (Task Scheduler tự diệt lượt sau 45 phút) |
+| `$SafetyRunMin` | `50` | Đầu mỗi lượt (theo lịch hoặc `/chay`) hẹn sẵn 1 lượt dự phòng sau bao nhiêu phút; lượt bị treo / bị diệt giữa chừng vẫn còn lượt sau. Xong bình thường thì hẹn lại đúng giờ. `0` = tắt |
 | `$NoRetryErrors` | chưa lưu mật khẩu, không thấy tài khoản, hết hạt… | Lỗi khớp mẫu này thì không thử lại trong lượt |
 | `$MaxRetries` | `3` | Số lần thử lại liên tiếp tối đa trước khi dừng chuỗi (không tính lần mất mạng) |
 | `$NetWaitMinutes` | `5` | Trước khi chạy, chờ có Internet tối đa bao nhiêu phút |
@@ -702,6 +703,8 @@ Cấu hình đầu `ddtank_farm.ps1`:
 | `$MinFreeDiskGB` | `5` | Dung lượng trống tối thiểu ổ C: và ổ chứa script; thấp hơn thì cảnh báo |
 | `$KeepLogDays` | `14` | Xoá log + ảnh các lần chạy cũ hơn bao nhiêu ngày (0 = không xoá) |
 | `$PlotOffsets` | 10 cặp toạ độ | Vị trí 10 ô đất so với biển gỗ |
+| `$CareOnView` | `$true` | `/xemruong` thấy giọt nước / con sâu thì bấm 1 cái để tưới cây + bắt sâu cả ruộng. `$false` = chỉ xem |
+| `$WaterMaxScore` / `$BugMaxScore` | `20` / `28` | Ngưỡng nhận diện ảnh mẫu `templates\water.png` (giọt nước) / `templates\bug.png` (con sâu) |
 | `$DirectTouch` | `$true` | Bấm bằng ghi thẳng sự kiện chạm vào thiết bị cảm ứng của MuMu (mục 8). `$false` = dùng `input tap` |
 | `$HumanLike` | `$true` | Ngẫu nhiên hoá toạ độ, thời gian giữ ngón, thời gian chờ, giờ bắt đầu (mục 8) |
 | `$TapJitterPx` | `5` | Toạ độ bấm lệch tối đa ±bao nhiêu px |
@@ -747,7 +750,9 @@ Danh sách đề xuất ngày 18/11/2026. Cập nhật trạng thái mỗi khi l
 | 4 | Kiểm tra RAM + ổ đĩa trước khi mở MuMu, cảnh báo trên Telegram | ✅ | `$MinFreeRamMB` 2500, `$MinFreeDiskGB` 5 (mục 3, 9) |
 | 5 | Tự dọn log + ảnh cũ hơn 14 ngày; bot.log tự rút gọn | ✅ | `$KeepLogDays` (mục 6) |
 | 6 | Bot báo khi máy vừa khởi động lại + nguyên nhân (màn hình xanh / mất điện / Update) | ⬜ | `/maytinh` đã hiện số lần tắt bất thường 7 ngày, nhưng chưa tự nhắn |
-| 7 | Cảnh báo "lượt hẹn đã quá giờ mà chưa chạy" | ⬜ | |
+| 7 | Cảnh báo "lượt hẹn đã quá giờ mà chưa chạy" | ⬜ | Một phần: lịch dự phòng (dòng 33) |
+| 33 | Giới hạn thời gian cho mọi lệnh adb / MuMuManager; lịch dự phòng sau 50 phút; file ảnh riêng mỗi lượt; dọn adb treo | 🟡 | Sau sự cố 19/11 00:31 (mục 13). Đã kiểm tra lệnh treo bị cắt sau đúng giới hạn; lượt thật 19/11 08:28 chạy thông suốt. Chưa gặp lại thiết bị treo thật |
+| 34 | Kiểm tra đúng tài khoản trước khi thu hoạch; không chiếm thiết bị khi bạn đang chơi | ⬜ | Gặp 19/11 08:28 (mục 13). Đã làm thử "hoãn 15 phút khi game đang mở" rồi **bỏ theo yêu cầu** (19/11) |
 | 32 | Kết nối lại: chọn Wi-Fi đã lưu có sóng mạnh nhất, kiểm tra Internet thật, không được thì chuyển mạng kế tiếp | 🟡 | Đọc danh sách / sắp xếp đã test (18/11, giả lập 3 Wi-Fi đã lưu). Máy mới lưu 1 Wi-Fi (*<tên Wi-Fi>*) nên chưa test chuyển mạng thật (mục 4) |
 | 31 | Tự kết nối lại Wi-Fi khi mất mạng (bật lại sóng Wi-Fi; netsh; khởi động lại card nếu có quyền admin) | ✅ | Test 18/11 (bot, không quyền admin): **Disconnect <tên Wi-Fi>** 17:13:30 → bot phát hiện 17:14:50, `netsh` kết nối lại, có Internet 17:14:53. **Tắt sóng Wi-Fi** 17:15:59 → bot bật lại sóng 17:16:54, `netsh` kết nối, có Internet 17:17:07. Bot nhắn *"📶 Bot có mạng lại"* chậm hơn ~1 phút sau khi có mạng (yêu cầu Telegram đang treo phải hết thời gian chờ) (mục 4) |
 
@@ -758,7 +763,7 @@ Danh sách đề xuất ngày 18/11/2026. Cập nhật trạng thái mỗi khi l
 | 8 | Đọc số hạt khoai còn lại, báo khi sắp hết | ⬜ | Cần test với game thật |
 | 9 | Tự mua hạt khi sắp hết | ⬜ | Tiêu tiền trong game – cần cẩn thận |
 | 10 | Chọn loại cây trong cấu hình (thời gian chín riêng) | ⬜ | Cần ảnh mẫu hạt từng loại |
-| 11 | Bắt sâu / tưới nước ruộng của mình | ⬜ | |
+| 11 | Bắt sâu / tưới nước ruộng của mình | 🟡 | Trong `/xemruong` (19/11): nhận diện 💧/🐛 đúng 7/7 + 3/3 trên ảnh thật; bấm 1 biểu tượng là cả ruộng được tưới + bắt sâu (thử tay trên game thật). Mỗi vụ (gieo → thu hoạch) chỉ có **2 lần** cần tưới / bắt sâu. Chưa gặp lượt `/xemruong` thật lúc ruộng đang có biểu tượng. Lượt thu hoạch tự động chưa tưới |
 | 12 | Nhiều tài khoản: hàng đợi chạy lần lượt, `/chay tatca` | ⬜ | Hiện mỗi tài khoản đã có lịch riêng, trùng giờ thì chờ 10 phút |
 | 23 | Thao tác giống người: bấm bằng ghi thẳng sự kiện chạm + ngẫu nhiên hoá | ✅ | Lượt thật 18/11 16:27: đăng nhập, thu hoạch 10 ô, gieo 10/10 với cách bấm mới (mục 8) |
 | 24 | Chuyển vuốt / kéo hạt sang ghi thẳng sự kiện chạm | ⬜ | Cần test thao tác kéo khi thiết bị rảnh |
@@ -863,3 +868,25 @@ Mỗi lần câu mất khoảng 11–13 giây, chưa tính các lần nghỉ.
 - Đang câu thì không bấm vào cửa sổ MuMu.
 - Vị trí nút Kéo cần và vòng tròn **thay đổi theo chỗ nhân vật đứng**. Bot tự tìm nên không cần đứng đúng một chỗ, miễn là thấy 2 nút ở góc phải dưới.
 - Nếu luồng hình bị ngắt (ví dụ thu nhỏ MuMu), bot tự kết nối lại tối đa 3 lần.
+
+---
+
+## 13. Các lỗi gặp khi chạy thật
+
+Nhật ký các lỗi xảy ra khi script chạy thật trên máy (không tính lỗi lúc phát triển). Mỗi lần gặp lỗi mới thì thêm 1 dòng.
+
+**Chú thích:** ✅ đã sửa (đã kiểm tra) · 🟡 đã sửa, chưa gặp lại để kiểm chứng · ❌ chưa sửa · 🧑 bạn tự xử lý
+
+| Thời gian | Hiện tượng | Nguyên nhân | Cách xử lý | Trạng thái |
+|---|---|---|---|---|
+| 17/11 23:58 → 18/11 01:43 | 4 lượt liên tiếp *"Không vào được sảnh chính"* | Máy sleep, khi thức dậy Wi-Fi USB không tự kết nối lại | Tắt sleep, tắt tiết kiệm điện USB Wi-Fi (mục 5 → *Cài Windows 11 cho máy chạy 24/7*); script chờ mạng 5 phút, mất mạng không tính là lỗi | ✅ |
+| 18/11 10:55 | Màn hình xanh, máy tự khởi động lại | Lỗi `0x12B` (hỏng trang bộ nhớ) – nghi RAM / pagefile khi máy thiếu RAM | Kiểm tra RAM bằng `mdsched.exe`, thêm RAM (mục 11, dòng 21–22) | 🧑 ❌ |
+| 18/11 12:35 | `/xemruong` báo *"không xác định được"* | Cây lớn che mất biển gỗ cạnh ruộng | Đếm thanh thời gian trên cả màn hình, không cần biển gỗ | ✅ |
+| 18/11 16:17 | Lượt tự động dừng ngay: *"could not get driver version for /dev/input/mouse1"* | Lệnh dò thiết bị cảm ứng (`getevent`) in cảnh báo ra stderr; script chạy chế độ `Stop` nên PowerShell coi là lỗi | Đọc lệnh adb không qua stderr của PowerShell | ✅ |
+| 18/11 16:20 | *"Không thấy nút nông trại trong bảng Bạn bè"* | Popup *Báo danh mỗi ngày* hiện **sau** khi đã vào sảnh, che nút Bạn bè | Đóng popup trước khi bấm Bạn bè; test lại sau giờ reset 16:00 (popup cần bấm ✕ 2 lần) | ✅ |
+| 18/11 16:25 | *"Không mở được form đăng nhập 7Road"* | Game tự đăng nhập bằng phiên cũ (vừa đăng nhập vài phút trước), nhảy thẳng tới *Vào game* | Thấy nút *Vào game* thì đi tiếp | ✅ |
+| 18/11 17:06 | Mất mạng, bot thử `netsh` nhưng không kết nối lại được; bot còn báo nhầm *"đã tự kết nối lại"* | Sóng Wi-Fi bị **tắt** (không phải ngắt kết nối) → `netsh` không làm gì được; bot ghi nhận khi chưa kiểm tra kết quả | Bật lại sóng Wi-Fi bằng Radio API; chỉ báo việc thật sự thành công; test lại 2 trường hợp tắt sóng / ngắt kết nối đều tự nối lại | ✅ |
+| **19/11 00:31** | Lượt 00:26 **đứng im giữa lúc thu hoạch** (đã thu 3/10 ô), không báo lỗi, không hẹn lịch mới; **thiết bị và game treo** tới khi bạn phát hiện lúc 04:18 và `/chay` lại | Lệnh chụp màn hình `adb exec-out screencap` treo vô hạn (thiết bị/game treo), script không có giới hạn thời gian → chờ mãi; nhiều khả năng Task Scheduler diệt lượt sau 45 phút → không chạy phần tắt máy + hẹn lịch | (1) **Mọi lệnh adb và MuMuManager có giới hạn thời gian** (chụp màn hình 15 giây) → quá giờ thì báo lỗi, bước được làm lại, cuối cùng khởi động lại thiết bị. (2) **Lịch dự phòng**: đầu mỗi lượt hẹn sẵn 1 lượt sau 50 phút (`$SafetyRunMin`), lượt bị diệt vẫn còn lượt sau | 🟡 |
+| 19/11 04:21 | Lượt `/chay` lỗi *"The process cannot access the file …ddtank_farm_screen.raw"* (2 lần làm lại không được, phải khởi động lại thiết bị) | Lệnh adb treo của lượt 00:26 vẫn còn sống, giữ file ảnh chụp chung | Mỗi lượt dùng file ảnh riêng; đầu lượt diệt lệnh chụp màn hình bị treo còn sót (> 3 phút) | 🟡 |
+| 19/11 04:24 | Lượt chạy thành công nhưng **không có tin Telegram** (*"message caption is too long"*) | 3 dòng báo làm lại chép nguyên câu lỗi dài → chú thích ảnh vượt 1024 ký tự | Rút gọn câu lỗi (≤ 140 ký tự); chú thích quá dài thì gửi phần còn lại thành tin nhắn riêng | 🟡 |
+| 19/11 08:28 | Lượt xem ruộng (test) báo *"akaka: có ô đã chín"* nhưng thật ra là **ruộng của tài khoản khác**; xong còn **tắt thiết bị đang có người dùng** | Thiết bị đang bật sẵn, game đang ở sảnh của tài khoản khác → script không kiểm tra đang đăng nhập tài khoản nào, vào thẳng nông trại; cuối lượt luôn tắt thiết bị | **Bạn chọn giữ nguyên** (19/11): lượt tự động vẫn chạy khi game đang mở. Tránh mở game trên thiết bị `auto` gần giờ thu hoạch (xem `/lich`) | 🧑 |
