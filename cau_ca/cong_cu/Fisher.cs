@@ -34,7 +34,10 @@ public class Fisher
         tBag = Ring.LoadRgb(Path.Combine(tplDir, "balo_day.png"), out tBagW, out tBagH);      // thong bao "Ba lo da day"
     }
     bool Waiting(byte[] p) { return Ring.MatchAt(p, W, H, tWait, tWaitW, tWaitH, 250, 256, 30) < 10; }   // vi tri doi theo cho dung
-    bool Idle(byte[] p) { return Ring.MatchAt(p, W, H, tIdle, tIdleW, tIdleH, 425, 300, 6) < 20; }
+    // Nut "Cau ca bang luoi" trong suot (nen sau doi theo cho dung) + so luoi o goc (mau "1", 19/11 la "0"):
+    // do 19/11 tren 345 anh co nut: diem <= 20.1, 740 anh dang cau / chuc mung: >= 50 -> nguong 35 (truoc la 20: sat mep, bao loi gia)
+    double IdleScore(byte[] p) { return Ring.MatchAt(p, W, H, tIdle, tIdleW, tIdleH, 425, 300, 6); }
+    bool Idle(byte[] p) { return IdleScore(p) < 35; }
 
     // ---------- luong hinh + shell bam ----------
     public string TouchDev = null;   // vd /dev/input/event4: tu do theo ten "Xiaomi Input" (so thu tu co the doi)
@@ -262,7 +265,7 @@ public class Fisher
             {
                 int k0 = 0; while (k0 < pts.Count - 3 && pts[k0].Value > 78) k0++;   // r > 78 do khong chuan (lan vong do ngoai)
                 int n = pts.Count - k0;
-                if (pts[pts.Count - 1].Key - pts[k0].Key >= 0.08)
+                if (pts[pts.Count - 1].Key - pts[k0].Key >= (round > 1 ? 0.05 : 0.08))
                 {
                     double mt = 0, mr = 0; for (int i = k0; i < pts.Count; i++) { mt += pts[i].Key; mr += pts[i].Value; } mt /= n; mr /= n;
                     double sxy = 0, sxx = 0; for (int i = k0; i < pts.Count; i++) { sxy += (pts[i].Key - mt) * (pts[i].Value - mr); sxx += (pts[i].Key - mt) * (pts[i].Key - mt); }
@@ -270,7 +273,16 @@ public class Fisher
                 }
             }
             // can >= 4 diem tren 0.1s (tranh nhieu: 80,80,35 -> toc do ao 320 px/s) va qua cau con tren man hinh (< 0.15s)
-            if (pts.Count >= 4 && pts[pts.Count - 1].Key - pts[0].Key >= 0.1
+            bool enough = pts.Count >= 4 && pts[pts.Count - 1].Key - pts[0].Key >= 0.1;
+            // vong 2+ rat nhanh (19/11: vong 3 bat dau do tu r 66-75, chum trong ~0.25s, 3 lan mat ca vi khong kip du 4 diem / 0.1s):
+            // nhan 3 diem giam deu tren >= 0.05s khi vong da vao sau (r <= 40)
+            bool urgent = false;
+            if (!enough && round > 1 && fit && pts.Count >= 3 && lastR <= 40 && pts[pts.Count - 1].Key - pts[0].Key >= 0.05)
+            {
+                urgent = true;
+                for (int i = 1; i < pts.Count; i++) if (pts[i].Value >= pts[i - 1].Value) { urgent = false; break; }
+            }
+            if ((enough || urgent)
                 && ((DateTime.Now - ballSeen).TotalSeconds < 0.3 || (DateTime.Now - ringSeen).TotalSeconds < 0.15))
             {
                 var b = pts[pts.Count - 1];
@@ -285,7 +297,7 @@ public class Fisher
                     tapBand = nowS - b.Key > 0.2 ? null : band;
                     LastTap = string.Format("{0:0.0},{1},{2:0},{3:0.000}", pred, b.Value, v, (DateTime.Now - t0).TotalSeconds - b.Key);
                     LastBand = string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0}:{1:0.0}:{2:0.000}", band, adj, gap);
-                    Log(string.Format("BAM vong {0} tai {6}: r du doan {1:0} (do lan cuoi r={2}, toc do {3:0} px/s, con {5:0.00}s toi luc chum), {4:0.00}s sau Keo can, vong '{7}' bu {8:0.0}", round, pred, b.Value, v, (DateTime.Now - pullTap).TotalSeconds, pred / v, ringPt, band, adj));
+                    Log(string.Format("BAM vong {0} tai {6}: r du doan {1:0} (do lan cuoi r={2}, toc do {3:0} px/s, con {5:0.00}s toi luc chum), {4:0.00}s sau Keo can, vong '{7}' bu {8:0.0}{9}", round, pred, b.Value, v, (DateTime.Now - pullTap).TotalSeconds, pred / v, ringPt, band, adj, urgent ? " (vong rat nhanh: bam voi " + pts.Count + " diem)" : ""));
                     Log("  ban kinh:" + trace);
                     return;
                 }
@@ -392,7 +404,7 @@ public class Fisher
         {
             p = Next(ref last, out t);
             if (!Idle(p)) stable = DateTime.Now;
-            if (DateTime.Now > dlIdle) { SaveFrame(p, no + "_loi_khong_o_cho_cau"); return "LOI: khong thay nut Bat dau cau ca (khong dung o cho cau?)"; }
+            if (DateTime.Now > dlIdle) { SaveFrame(p, no + "_loi_khong_o_cho_cau"); return string.Format("LOI: khong thay nut Bat dau cau ca (khong dung o cho cau?) - diem khop nut luoi {0:0.0}, can < 35", IdleScore(p)); }
         }
         SaveFrame(p, no + "_0_truoc");
         SleepRnd(200, 1500);  // nguoi khong bam lai ngay khi nut vua hien
@@ -412,7 +424,7 @@ public class Fisher
                 if (BagFull(p)) { SaveFrame(p, no + "_balo_day"); return "BALO DAY (game bao \"Ba lo da day\")"; }
                 // da bat dau = nut "Cau ca bang luoi" bien mat lien tuc 0.5s (chu "Doi ca can cau" doi vi tri/nen theo cho dung)
                 if (Idle(p)) gone = DateTime.MinValue;
-                else { if (gone == DateTime.MinValue) gone = DateTime.Now; if ((DateTime.Now - gone).TotalSeconds >= 0.5 || Pull(p)) { started = true; break; } }
+                else { if (gone == DateTime.MinValue) gone = DateTime.Now; if ((DateTime.Now - gone).TotalSeconds >= 0.5 || Pull(p)) { started = true; Log(string.Format("  da bat dau (diem khop nut luoi {0:0.0})", IdleScore(p))); break; } }
             }
             if (noBait) { SaveFrame(p, no + "_het_moi"); return "HET MOI (game bao \"Moi chua du\")"; }
         }

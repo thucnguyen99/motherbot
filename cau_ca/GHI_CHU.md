@@ -120,3 +120,16 @@ Ghẹ 181g, Ghẹ 185g, Tôm 54g, Cá mòi 112g, Cá hố 203g, Cá hố 286g, C
 - **Sửa: không bỏ vòng khi luồng hình khựng.** Lần 10 lượt 21:16 mất cá vì luồng hình dừng 0,8 s. Giờ chỉ tính thời gian có khung hình mới.
 - **Sửa: vòng không bấm ghi là "Khong bam".** Trước đây vòng xanh dương bị đọc nhầm thành "Xuat sac".
 - CSV có thêm cột `loai_vong` = `loại:bù_px:khoảng_cách_đo_s`.
+
+## 19/11: lỗi "khong thay nut Bat dau cau ca" và mất cá ở vòng 3
+- **Lỗi giả "không ở chỗ câu"** (4 lượt, mỗi lượt chờ đủ 30 giây trong khi nút vẫn hiện):
+  - Ảnh mẫu `nut_luoi.png` có kèm số lưới ở góc nút (mẫu là "1", hôm nay game hiện "0").
+  - Nút trong suốt, nên nền phía sau đổi theo chỗ nhân vật đứng.
+  - Đo trên ảnh đã lưu: 345 ảnh có nút cho điểm ≤ 20,1; 740 ảnh đang câu hoặc chúc mừng cho điểm ≥ 50. Lúc đang đợi cá (đo trực tiếp) là khoảng 54.
+  - Ngưỡng cũ 20 nằm sát mép → **nâng lên 35**. Log ghi điểm khớp khi bắt đầu câu và khi báo lỗi.
+- **Vòng 3 co rất nhanh, bot không bấm** (3 lần mất cá):
+  - Vòng bắt đầu đo được từ r = 66–75 và chụm trong khoảng 0,25 giây. Bot không kịp có 4 điểm đo trong 0,1 giây.
+  - Sửa: từ vòng 2 trở đi, cho bấm khi có 3 điểm giảm đều trong ≥ 0,05 giây và r ≤ 40. Log ghi "vong rat nhanh: bam voi N diem".
+- **Chưa sửa** — vòng 3 bấm rồi mà game không nhận (2 lần):
+  - Ảnh 350 ms sau khi bấm không có chữ kết quả. Bot đọc nhầm vòng xanh dương thành "Xuat sac".
+  - Sau đó game báo "Thao tác chờ đã hết, con cá đã tuột".

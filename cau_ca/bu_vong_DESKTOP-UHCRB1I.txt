@@ -1,8 +1,8 @@
 # Muc bu (px, + = bam som hon) tung loai vong, bot tu hoc tren may DESKTOP-UHCRB1I.
 # KHAC NHAU TUY MAY (do tre moi may khac nhau): khong chep sang may khac; xoa file de hoc lai tu dau.
 cham=0.0
-vua=-1.5
-nhanh=-3.0
-thua_cham=0.0
+vua=-5.0
+nhanh=-10.0
+thua_cham=-0.5
 thua_vua=4.0
 thua_nhanh=4.0
