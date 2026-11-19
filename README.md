@@ -68,7 +68,7 @@ Mọi lệnh dưới đây chạy trong thư mục `D:\tools\ddtank-farm`.
 
 | Việc | Ghi chú |
 |---|---|
-| MuMu Player cài tại `D:\Program Files\Netease\MuMuPlayer` | Nếu khác, sửa `$MuMuDir` đầu file `ddtank_farm.ps1` |
+| MuMu Player cài tại `D:\Program Files\Netease\MuMuPlayer` | Nếu khác, sửa `$MuMuDir` đầu file `ddtank_farm.ps1` và `telegram_bot.ps1`. Bot câu cá tự tìm MuMu trên mọi ổ đĩa |
 | Có thiết bị MuMu tên **`auto`** | Sửa `$DeviceName` nếu dùng tên khác |
 | Màn hình thiết bị **1600 x 900, DPI 240** | **Bắt buộc**, xem mục 7 |
 | Đã cài DDTank trên thiết bị `auto` | |
@@ -650,7 +650,7 @@ ddtank-farm\
 ├─ ddtank_farm.ps1        script chính (cấu hình ở đầu file)
 ├─ Vision.cs              nhận diện ảnh (template matching)
 ├─ run.bat                chạy tay:  run.bat -Account <tên>
-├─ cau_ca\                câu cá chạy riêng (mục 12): cau_ca.bat, GHI_CHU.md, hieu_chinh.csv,
+├─ cau_ca\                câu cá chạy riêng (mục 12): cau_ca.bat, GHI_CHU.md, hieu_chinh.csv, bu_vong_<tên máy>.txt,
 │                         cong_cu\ (script), mau\ (ảnh mẫu), ket_qua\ (ảnh mỗi lần chạy), ghi_hinh\ (bản ghi làm mẫu)
 ├─ lap_lich.ps1 / .bat    cài / xem / xoá lịch
 ├─ telegram_bot.ps1       bot nhận lệnh Telegram (/chay, /trangthai, /dung…)
@@ -792,7 +792,9 @@ Danh sách đề xuất ngày 18/11/2026. Cập nhật trạng thái mỗi khi l
 
 | # | Nâng cấp | Trạng thái | Ghi chú |
 |---|---|---|---|
-| 25 | Bot câu cá tự động, nhắm "Tuyệt vời" | ✅ | Đợt 20 lần tốt nhất: 19/20 con, 79% vòng Tuyệt vời |
+| 25 | Bot câu cá tự động, nhắm "Tuyệt vời" | ✅ | Máy DELL (`-LeadSec 0.03`): 92% vòng Tuyệt vời trên 259 vòng |
+| 29 | Chạy được khi clone sang máy khác (tự tìm MuMu, `-NghiSau 20,30` qua `-File`, `-LeadSec` theo máy) | ✅ | 18/11 |
+| 30 | Bù riêng từng loại vòng (chậm / vừa / nhanh / thưa khung), tự học theo kết quả, lưu theo máy | ✅ ⏳ | Chưa chạy thử với game |
 | 26 | Tự đi từ sảnh tới chỗ câu (Giao lưu → Thị trấn nhỏ → cầu tàu) | ⬜ | Hiện phải đứng sẵn ở cầu tàu |
 | 27 | Tự bán / dọn cá khi Ba lô đầy (khoảng 60 con) | ⬜ | Cần bạn làm mẫu thao tác bán cá |
 | 28 | Lệnh Telegram `/cauca` | ⬜ | Bạn chọn chạy tay bằng `cau_ca.bat` |
@@ -809,34 +811,68 @@ Bot câu cá **chạy riêng bằng tay**, không theo lịch và không gắn v
 3. Ba lô còn chỗ trống (chứa khoảng 60 con) và còn mồi.
 
 ### Chạy
-Tất cả file câu cá nằm trong thư mục `D:\tools\ddtank-farm\cau_ca\`. Mở PowerShell hoặc cmd:
+Tất cả file câu cá nằm trong thư mục `cau_ca\` của repo. Mở PowerShell hoặc cmd tại thư mục repo:
 ```
-D:\tools\ddtank-farm\cau_ca\cau_ca.bat 30
+cau_ca\cau_ca.bat 30
 ```
 - `30` là số lần câu. Bỏ trống thì câu 30 lần.
 - Thêm `-KhongNguoi` để tắt giả lập người: không nghỉ giữa chừng, không lệch toạ độ.
+- Thêm `-LeadSec 0.03` (hoặc giá trị đã hiệu chỉnh cho máy đang dùng), xem mục **Hiệu chỉnh theo máy** bên dưới.
 - Dừng giữa chừng: bấm `Ctrl+C` trong cửa sổ đang chạy.
 
-Lệnh đầy đủ, có thêm tuỳ chọn:
+Lệnh đầy đủ, có thêm tuỳ chọn (sửa đường dẫn cho đúng chỗ clone repo):
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -File "D:\tools\ddtank-farm\cau_ca\cong_cu\cau_thu.ps1" -N 30 -NghiSau 12,20 -NghiGiay 20,90
+powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\DELL\Documents\tools\motherbot\cau_ca\cong_cu\cau_thu.ps1" -N 50 -NghiSau 15,20 -NghiGiay 25,35 -LeadSec 0.03
 ```
 | Tham số | Mặc định | Ý nghĩa |
 |---|---|---|
 | `-N` | 3 (`cau_ca.bat`: 30) | Số lần câu |
-| `-ThietBi` | `auto` | Tên thiết bị MuMu. Bot tự tìm cổng ADB |
-| `-NghiSau a,b` | `12,20` | Cứ câu ngẫu nhiên a–b con thì nghỉ 1 lần |
+| `-ThietBi` | `auto` | Tên thiết bị MuMu. Bot tự tìm thư mục MuMu (ổ C:, D:…) và cổng ADB |
+| `-NghiSau a,b` | `12,20` | Cứ câu ngẫu nhiên a–b con thì nghỉ 1 lần. Viết `20,30`, `20-30` hay `"20 30"` đều được |
 | `-NghiGiay a,b` | `20,90` | Mỗi lần nghỉ ngẫu nhiên a–b giây |
 | `-KhongNguoi` | tắt | Tắt ngẫu nhiên hoá và nghỉ |
-| `-TargetR`, `-LeadSec` | `11`, `0.12` | Thời điểm bấm vòng tròn (đã hiệu chỉnh; xem `GHI_CHU.md` trước khi đổi) |
+| `-LeadSec` | `0.12` | Độ trễ bù của máy (giây). **Mỗi máy một giá trị**: máy cũ `0.12`, máy mới (DELL) `0.03` |
+| `-TargetR` | `11` | Bán kính (px) muốn vòng sáng chạm tới lúc lệnh bấm tới game |
+
+### Hiệu chỉnh theo máy
+Cùng cài đặt MuMu (1600x900, 240 dpi) nhưng **máy nhanh hay chậm thì độ trễ khác nhau**.
+- Ví dụ máy DELL: luồng hình khoảng 30 khung/giây, còn máy cũ khoảng 20.
+- Dùng `-LeadSec 0.12` của máy cũ trên máy DELL thì bot bấm sớm khoảng 0,08 giây, nên ra toàn **Xuất sắc**.
+
+Khi chạy trên máy mới:
+1. Chạy khoảng 10–20 lần rồi xem tổng kết.
+2. Nhiều **Xuất sắc** (bấm sớm) thì giảm `-LeadSec`. Nhiều **Hụt** (bấm muộn, mất cá) thì tăng. Mỗi lần chỉnh khoảng `0.02`.
+3. Phần lệch còn lại theo từng loại vòng, bot **tự học** (xem bên dưới).
+
+**Bù riêng từng loại vòng (tự học, lưu theo máy):**
+- Bot chia vòng theo tốc độ co: `cham` (< 130 px/s), `vua` (130–190), `nhanh` (≥ 190).
+- Bot cũng chia theo độ thưa của khung hình: tiền tố `thua_` khi chỉ đo được khoảng 14 lần/giây thay vì 30. Đây là một loại cá có hình vòng tròn hiện trễ.
+- Mỗi loại có một mức bù (px) cộng vào ngưỡng bấm. Sau mỗi vòng: **Xuất sắc → bấm muộn hơn 0,5 px**, **Hụt → bấm sớm hơn 1,5 px**.
+- Mức bù lưu ở `cau_ca\bu_vong_<tên máy>.txt`, mỗi máy một file.
+  - Tên máy là `%COMPUTERNAME%` của Windows. Ví dụ máy DELL là `bu_vong_DESKTOP-UHCRB1I.txt`.
+  - File được tạo với giá trị khởi đầu ở lần chạy đầu tiên, rồi cập nhật sau mỗi vòng ra Xuất sắc hoặc Hụt.
+  - Đầu và cuối mỗi lượt chạy, bot in bảng mức bù.
+  - Muốn học lại từ đầu thì xoá file đó.
+
+> ⚠️ **Mức bù và `-LeadSec` khác nhau tuỳ theo máy.**
+> - Các file `bu_vong_*.txt` được commit lên repo để giữ lại mức bù đã học. Mỗi file chỉ đúng với **đúng máy có tên đó**.
+> - **Không** đổi tên hay chép file của máy này sang máy khác.
+> - Máy mới sẽ tự tạo file riêng và học lại, kể cả khi cùng cài đặt MuMu (1600x900, 240 dpi).
+> - Sau khi câu một đợt dài, nhớ commit file `bu_vong_<tên máy>.txt` của máy đó để lưu mức bù mới.
+>
+> | Máy | Tên máy | `-LeadSec` |
+> |---|---|---|
+> | Máy cũ | (chưa ghi) | `0.12` |
+> | Máy DELL | `DESKTOP-UHCRB1I` | `0.03` |
 
 ### Bot làm gì mỗi lần câu
 1. Chờ thấy nút *Câu cá bằng lưới* (đang ở chỗ câu), rồi bấm **Bắt đầu câu cá**. **Không bao giờ bấm Câu cá bằng lưới.**
 2. Đợi cá cắn câu (4–13 giây). Nút đổi thành **Kéo cần** màu đỏ thì bấm.
-3. **Vòng tròn:** vòng sáng co dần vào quả cầu cam. Bot đo bán kính khoảng 17 lần mỗi giây và bấm đúng lúc để được **Tuyệt vời**.
-   - Mỗi vòng co với tốc độ khác nhau (60–250 px/s).
-   - Cá khó có 2–3 vòng liên tiếp, vòng sau nhanh hơn. Bot bấm từng vòng.
+3. **Vòng tròn:** vòng sáng co dần vào quả cầu cam. Bot đo bán kính 20–30 lần mỗi giây (tuỳ máy) và bấm đúng lúc để được **Tuyệt vời**.
+   - Mỗi vòng co với tốc độ khác nhau (60–290 px/s).
+   - Cá khó có 2–3 vòng liên tiếp, vòng sau nhanh hơn. Bot bấm từng vòng, mỗi loại vòng dùng mức bù riêng.
 4. Màn **Chúc mừng!** (tên cá, cân nặng) → bấm *Nhấn để tiếp tục*, rồi câu con tiếp theo.
+5. Log ghi **điểm bấm thật** (đã lệch ngẫu nhiên) của mọi lần bấm. Ví dụ: `bam Keo can tai (1391,704) (tam nut (1385,710))`.
 
 ### Bot tự dừng khi
 | Tình huống | Bot báo |
@@ -851,7 +887,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "D:\tools\ddtank-farm\cau_ca
 |---|---|---|
 | 40 lần (`input tap`) | 37/40 | 72% |
 | 20 lần (`input tap`) | 17/20 | 65% |
-| **20 lần (ghi thẳng sự kiện chạm)** | **19/20** | **79%** |
+| 20 lần (ghi thẳng sự kiện chạm) | 19/20 | 79% |
+| **Máy DELL, `-LeadSec 0.03`, 6 lượt (21:16–22:30)** | **197/204** | **92% (237/259 vòng)** |
+
+Trên máy DELL, các vòng chưa được Tuyệt vời đều là vòng 2–3 co nhanh, và vòng 2 của loại cá "thưa khung". Bot đã thêm bù riêng cho các vòng này nhưng **chưa chạy thử** (xem `GHI_CHU.md`).
 
 Mỗi lần câu mất khoảng 11–13 giây, chưa tính các lần nghỉ.
 
@@ -860,14 +899,16 @@ Mỗi lần câu mất khoảng 11–13 giây, chưa tính các lần nghỉ.
   - `log.txt`: toàn bộ nhật ký, gồm thông số lúc chạy, từng bước bấm, **dãy bán kính đo được của từng vòng**, các lần nghỉ, lỗi và tổng kết.
   - `N_0_truoc.jpg`: trước khi câu. `N_vK_sau_bam.jpg`: sau khi bấm vòng K (thấy chữ Tuyệt vời / Xuất sắc / Hụt).
   - `N_3_chuc_mung.jpg` / `N_3_khong_chuc_mung.jpg`: câu được / trượt. `het_moi`, `balo_day`, `loi_…`: lúc bot dừng.
-- `cau_ca\hieu_chinh.csv`: mỗi vòng bấm một dòng, ghi thêm vào sau qua mọi lần chạy. Gồm giờ, lần, vòng, bán kính dự đoán, tốc độ co, kết quả, có giả lập người hay không, **dãy bán kính** (`vet_ban_kinh`) và tên thư mục lần chạy (`lan_chay`) để mở ảnh tương ứng. Dùng để tìm nguyên nhân các lần Hụt / Xuất sắc và chỉnh script.
+- `cau_ca\hieu_chinh.csv`: mỗi vòng bấm một dòng, ghi thêm vào sau qua mọi lần chạy. Gồm giờ, lần, vòng, bán kính dự đoán, tốc độ co, kết quả, có giả lập người hay không, **dãy bán kính** (`vet_ban_kinh`) tên thư mục lần chạy (`lan_chay`) để mở ảnh tương ứng, và **loại vòng** (`loai_vong` = `loại:bù_px:khoảng_cách_đo_s`). Dùng để tìm nguyên nhân các lần Hụt / Xuất sắc và chỉnh script.
+- `cau_ca\bu_vong_<tên máy>.txt`: mức bù từng loại vòng mà bot đã tự học trên máy đó. Có commit lên repo, **mỗi máy một file, khác nhau tuỳ máy**.
 - `cau_ca\GHI_CHU.md`: ghi chú kỹ thuật (luật vòng tròn, cách nhận trạng thái, lịch sử hiệu chỉnh).
 
 ### Lưu ý
 - **Đừng để trùng giờ với lượt nông trại** (xem giờ bằng `/trangthai` trên Telegram). Lượt nông trại sẽ đăng nhập lại tài khoản nông trại và **tắt thiết bị `auto`** khi xong.
 - Đang câu thì không bấm vào cửa sổ MuMu.
 - Vị trí nút Kéo cần và vòng tròn **thay đổi theo chỗ nhân vật đứng**. Bot tự tìm nên không cần đứng đúng một chỗ, miễn là thấy 2 nút ở góc phải dưới.
-- Nếu luồng hình bị ngắt (ví dụ thu nhỏ MuMu), bot tự kết nối lại tối đa 3 lần.
+- Nếu luồng hình bị ngắt (ví dụ thu nhỏ MuMu), bot tự kết nối lại tối đa 3 lần, kể cả lúc mới khởi động.
+- Luồng hình khựng trong lúc vòng tròn đang co thì bot chờ, không bỏ vòng. Vòng nào bot không bấm được ghi là `Khong bam`.
 
 ---
 

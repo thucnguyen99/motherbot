@@ -90,3 +90,33 @@ Ghẹ 181g, Ghẹ 185g, Tôm 54g, Cá mòi 112g, Cá hố 203g, Cá hố 286g, C
 - Mỗi lần chạy có `ket_qua\cau_thu_<ngày>_<giờ>\log.txt` (toàn bộ nhật ký, kể cả dãy bán kính).
 - `hieu_chinh.csv` có thêm 3 cột: `nguoi` (1 = giả lập người), `vet_ban_kinh` ("giây:bán_kính …" của vòng vừa bấm), `lan_chay` (thư mục ảnh). Các dòng trước 15:45 không có 3 cột này.
 - Phân tích: lọc `ket_qua` = Hut / Xuat sac, xem `vet_ban_kinh` có bị khựng (khoảng trống giữa 2 điểm > 0,1 s), đo sai ở r > 78, hay phải đoán xa (`ngoai_suy_s` lớn), rồi mở ảnh `N_vK_sau_bam.jpg` trong `lan_chay`.
+
+## Máy thứ 2 (18/11 21:00): `LeadSec` phải chỉnh theo từng máy
+- Cùng MuMu 1600x900 240dpi, cùng code, nhưng chạy mặc định (`LeadSec` 0,12) thì **7/7 vòng ra Xuất sắc** (bấm quá sớm).
+- Bot bấm ở cùng thời điểm trên cả 2 máy (trung bình 0,234 s trước khi vòng chụm), nên lệch là do **độ trễ của máy**, không phải do code.
+- Máy mới nhanh hơn: luồng hình khoảng 30 khung/s (máy cũ khoảng 20), vòng tròn hiện 0,25 s sau Kéo cần (máy cũ khoảng 0,4 s).
+  - Bot thấy hình sớm hơn, cộng thêm phần bù trễ 0,12 s (đo ở máy cũ) nên bấm sớm khoảng 0,08 s.
+- `-LeadSec 0.03` trên máy mới: **8/10 con, 11/12 vòng Tuyệt vời**, 1 Hụt (vòng 2, 154 px/s).
+- Đổi máy thì chạy thử khoảng 10 lần: nhiều Xuất sắc → giảm `LeadSec`; nhiều Hụt → tăng `LeadSec`. Mỗi bước khoảng 0,02.
+
+## Phân tích 259 vòng trên máy 2 (18/11 21:16–22:30, `LeadSec` 0,03) và các sửa đổi
+- Tổng: 237 Tuyệt vời (92%), 17 Xuất sắc, 5 Hụt; câu được 197/204 con (6 lượt). Lượt nào cũng dừng vì **Ba lô đầy** (khoảng 40 con).
+- Chia theo loại vòng:
+
+| Loại | Đặc điểm | Kết quả | Kết luận |
+|---|---|---|---|
+| `cham` | < 130 px/s, hầu hết là vòng 1 | 199/200 Tuyệt vời | Giữ nguyên |
+| `vua` | 130–190 px/s, vòng 2 | 28 Tuyệt vời, 10 Xuất sắc | Bấm hơi sớm |
+| `nhanh` | ≥ 190 px/s, vòng 3 | 6/6 Xuất sắc | Bấm sớm |
+| `thua_vua` | Vòng 2 (~157 px/s) của một loại cá, chỉ đo được khoảng 14 điểm/giây (thường là 30) | 4/4 Hụt, mất cá | Hình hiện trễ nên bot bấm muộn |
+| `thua_cham` | Vòng 1 của loại cá đó | 10/10 Tuyệt vời | Giữ nguyên |
+
+- Khoảng cách giữa 2 lần đo: khung thường 0,030–0,041 s, khung thưa 0,065–0,069 s. Ngưỡng phân loại là 0,05 s.
+- **Sửa: bù riêng từng loại vòng, tự học và lưu theo máy** (`bu_vong_<tên máy>.txt`, có commit; **khác nhau tuỳ máy**, không chép sang máy khác).
+  - Mức bù (px, dương = bấm sớm hơn) được cộng vào ngưỡng bấm.
+  - Sau mỗi vòng: Xuất sắc → −0,5; Hụt → +1,5.
+  - Giá trị khởi đầu: `vua` −1,5; `nhanh` −3; `thua_vua` +4; các loại khác 0.
+  - Không học khi bấm dự phòng hoặc khi khung hình cuối đã cũ hơn 0,2 s.
+- **Sửa: không bỏ vòng khi luồng hình khựng.** Lần 10 lượt 21:16 mất cá vì luồng hình dừng 0,8 s. Giờ chỉ tính thời gian có khung hình mới.
+- **Sửa: vòng không bấm ghi là "Khong bam".** Trước đây vòng xanh dương bị đọc nhầm thành "Xuat sac".
+- CSV có thêm cột `loai_vong` = `loại:bù_px:khoảng_cách_đo_s`.
