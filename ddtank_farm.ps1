@@ -1,11 +1,12 @@
 ﻿# =====================================================================
-#  DDTank - tu dong thu hoach nong trai + trong khoai tay (MuMu Player + ADB)
+#  DDTank - tu dong thu hoach nong trai + gieo hat (mac dinh khoai tay) (MuMu Player + ADB)
 #  Quy trinh: mo thiet bi "auto" -> mo app DDTank -> vao game -> Ban be ->
-#             Nong trai -> thu hoach (di theo duong ran) -> gieo khoai 10 o ->
+#             Nong trai -> thu hoach (di theo duong ran) -> gieo hat 10 o (doc dong ho -> gio chin) ->
 #             kiem tra -> tat app -> tat thiet bi
 #  Chay:  run.bat -Account <ten tai khoan 7Road>
 #  Tham so: -Account ten  (bat buoc khi game doi dang nhap: tai khoan 7Road da luu
 #                          trong app - script chon tu danh sach, mat khau app tu dien)
+#           -Seed nho     (loai hat lan nay; mac dinh khoai - danh sach trong hat_giong.ps1)
 #  Tuy chon: -KeepDevice   (khong tat thiet bi khi xong - de test)
 #            -SkipLaunch   (thiet bi da mo san va dang o trong game)
 #            -LoginOnly    (chi dang nhap toi sanh chinh roi dung)
@@ -14,10 +15,11 @@
 #            -Manual       (chay tay: bo qua /tamdung - run.bat va lenh /chay tu them)
 #            -ViewOnly     (chi chup anh ruong gui Telegram - lenh /xemruong)
 #  Telegram: dien bot_token + chat_id vao telegram.json (xem README.md)
-#  Tu lap lich: chay xong tu hen lan sau luc khoai chin ($AutoSchedule, xem phan CAU HINH)
+#  Tu lap lich: chay xong tu hen lan sau luc cay chin ($AutoSchedule, xem phan CAU HINH)
 # =====================================================================
 param(
     [string]$Account,      # tai khoan 7Road
+    [string]$Seed,         # loai hat cho lan nay (khoai, le, nho, tao, thanhlong, ngo, bapcai, catim - xem hat_giong.ps1)
     [switch]$KeepDevice,
     [switch]$SkipLaunch,
     [switch]$StepShots,    # luu anh man hinh o tung buoc vao logs\ (de kiem tra)
@@ -120,8 +122,21 @@ $StartJitterSec = 60    # luot tu dong (khong -Manual) cho ngau nhien 0-60s truo
 $StepRetries   = 3      # moi buoc nho (vao game, mo nong trai, thu hoach, gieo hat) loi thi lam lai buoc do, toi da 3 lan
 $InRunRetries  = 1      # het lan thu cua 1 buoc -> khoi dong lai thiet bi va chay lai ca luot (1 lan)
 $RetryBudgetMin = 35    # luot da chay qua 35 phut thi thoi thu lai (Task Scheduler diet luot sau 45 phut)
-$SafetyRunMin   = 50    # dau luot hen san 1 luot du phong sau 50 phut (luot bi treo/bi diet van con luot sau). 0 = tat# Loi ma thu lai cung vo ich -> bao loi luon (thieu cau hinh / tai khoan / het hat)
-$NoRetryErrors = 'chưa truyền -Account|chưa được app lưu mật khẩu|Không thấy tài khoản|Không tìm thấy hạt khoai tây'
+$SafetyRunMin   = 50    # dau luot hen san 1 luot du phong sau 50 phut (luot bi treo/bi diet van con luot sau). 0 = tat
+# Loi ma thu lai cung vo ich -> bao loi luon (thieu cau hinh / tai khoan / het hat / sai ten hat)
+$NoRetryErrors = 'chưa truyền -Account|chưa được app lưu mật khẩu|Không thấy tài khoản|Không tìm thấy hạt|Không có loại hạt'
+
+# Loai hat (danh sach trong hat_giong.ps1). -Seed / "/chay <tk> <hat>" chon cho 1 lan chay; khong ghi -> $DefaultSeed.
+# Hat da chon het (khong con trong bang) -> gieo $DefaultSeed thay. Gieo xong hat khac khoai ma con o trong
+# (hat khong du 10 o) -> keo them $DefaultSeed qua ca ruong cho kin ($FillWithDefault; o da co cay game tu bo qua).
+$DefaultSeed     = 'khoai'
+$FillWithDefault = $true
+$SeedMaxScore    = 13    # nguong anh mau hat (khop that 0-10.4, hat khac >= 18.9)
+# Gio chin: doc dong ho dem nguoc tren o dat ("03:06:53") ngay sau khi gieo (mau chu so: templates\timer_digits.txt).
+# Khong doc duoc -> uoc luong $GrowHours (dung cho khoai). $TimerMaxDist: chu so lech qua nguong nay -> bo dong ho do.
+$ReadTimers   = $true
+$TimerMaxDist = 9.0     # 19/11: chu so dung lech 0-7.4 (nen duong da lech hon), chu so chua tung co mau lech >= 6.7
+                        # -> nguong rong + Get-TimerRipe chi tin dong ho co it nhat 1 dong ho khac khop (+-90 giay)
 
 # Toa do 10 o dat tinh tu tam bien go canh ruong (farm_sign).
 # Thu tu keo hat: hang truoc phai -> trai, roi hang sau trai -> phai.
@@ -136,6 +151,7 @@ $Root     = $PSScriptRoot
 $Tpl      = Join-Path $Root "templates"
 $LogDir   = Join-Path $Root "logs"
 . (Join-Path $Root "ket_noi_mang.ps1")   # Get-WifiInfo, Save-WifiProfile, Repair-Network
+. (Join-Path $Root "hat_giong.ps1")      # $SeedTypes, ConvertTo-SeedKey
 # anh RAW (chup nhanh hon PNG), log van luu PNG. Moi luot 1 file rieng (theo PID): 19/11 adb treo cua luot truoc
 # giu file chung -> luot sau loi "file dang duoc tien trinh khac su dung".
 $Shot     = Join-Path $env:TEMP "ddtank_farm_screen_$PID.raw"
@@ -423,14 +439,18 @@ function Add-Photo($caption) {
 function Build-Summary($sowTime, $nextLine) {
     $lines = @("✅ Xong việc lúc: $(Get-Date -Format 'HH:mm dd/MM/yyyy')")
     if ($sowTime) {
-        $lines += "🥔 Thu hoạch tiếp theo (khoai chín): $($sowTime.AddHours($GrowHours).ToString('HH:mm dd/MM/yyyy'))"
+        $r = if ($script:SowRipe) { $script:SowRipe } else { $sowTime.AddHours($GrowHours) }
+        $lines += "🌾 Thu hoạch tiếp theo (cây chín): $($r.ToString('HH:mm dd/MM/yyyy'))"
+    } elseif ($script:GrowRipe) {
+        $lines += "🌾 Cây chín lúc: $($script:GrowRipe.ToString('HH:mm dd/MM/yyyy')) (theo đồng hồ trên ô đất)"
     } elseif ($script:RipeAt -and $script:RipeAt -gt (Get-Date)) {
-        $lines += "🥔 Khoai chín lúc: $($script:RipeAt.ToString('HH:mm dd/MM/yyyy')) (theo lần gieo trước)"
+        $lines += "🌾 Cây chín lúc: $($script:RipeAt.ToString('HH:mm dd/MM/yyyy')) (theo lần gieo trước)"
     } elseif ($ViewOnly -and $script:RipeAt) {
-        $lines += "🥔 Khoai chín lúc: $($script:RipeAt.ToString('HH:mm dd/MM/yyyy')) (đã tới giờ chín)"
+        $lines += "🌾 Cây chín lúc: $($script:RipeAt.ToString('HH:mm dd/MM/yyyy')) (đã tới giờ chín)"
     } else {
-        $lines += "🥔 Thu hoạch tiếp theo: chưa xác định (lần này không gieo)"
+        $lines += "🌾 Thu hoạch tiếp theo: chưa xác định (lần này không gieo)"
     }
+    foreach ($w in @($script:SeedNotes | Select-Object -Unique)) { if ($w) { $lines += $w } }
     if ($script:OfflineNote) { $lines += $script:OfflineNote }
     foreach ($w in @($script:RetryNotes)) { if ($w) { $lines += $w } }
     if ($script:NetRepairNote) { $lines += $script:NetRepairNote }
@@ -754,9 +774,12 @@ function Login-7Road {
     Snap | Out-Null; Step "chon_tai_khoan"
     $btn = Find-Ui $ui "btn_login"
     Log "Bam Login"; Tap $btn.X $btn.Y
+    $script:LoggedInThisRun = $true    # tu day man "Vao game" la phien cua $Account
     Nap 5
 }
 
+$script:LoggedInThisRun = $false   # luot nay da tu dang nhap 7Road bang $Account chua
+$script:LogoutTries = 0
 function Enter-Game {
     Log "Mo app DDTank..."
     [void](Invoke-MuMu "control -v $($script:Index) app launch -pkg $Package" 60)
@@ -783,6 +806,21 @@ function Enter-Game {
         }
         $vg = Find "btn_vaogame" 15
         if ($vg.Count) {
+            # Man "Vao game" ma luot nay CHUA tu dang nhap = game dang nho phien cu, KHONG ghi la tai khoan nao
+            # (19/11: vua dang nhap tai khoan 1 -> mo lai game hien thang "Vao game" -> chay tai khoan 2 se vao nham tai khoan 1).
+            # -> bam nut "Tai khoan" (= dang xuat, ve man "Dang nhap") roi dang nhap lai dung $Account.
+            if ($Account -and -not $script:LoggedInThisRun) {
+                $sw = Find "btn_taikhoan" 25
+                if ($sw.Count -and $script:LogoutTries -lt 3) {
+                    $script:LogoutTries++
+                    Step "phien_cu"
+                    Log "Game dang nho phien dang nhap cu (khong biet tai khoan nao) -> bam 'Tai khoan' de dang xuat, dang nhap lai bang '$Account'"
+                    Tap $sw[0].X $sw[0].Y; Nap 3
+                    continue
+                }
+                Save-Shot "loi_phien_cu"
+                throw "Game đang nhớ phiên đăng nhập cũ, không đăng xuất được để vào đúng tài khoản '$Account'"
+            }
             Step "dang_nhap"
             $chk = Find "chk_unticked" 8 @(380,760,160,100)
             if ($chk.Count) { Log "Tick o dong y dieu khoan"; Tap $chk[0].X $chk[0].Y 2; Nap 1 }   # o tick nho: lech toi da 2px
@@ -902,6 +940,13 @@ function Harvest-All {
 # Lich chay 8 tieng ma khoai cung can dung 8 tieng -> co the toi som vai phut.
 # Chua co o chin thi cho them toi da $WaitRipeMinutes phut, 30 giay kiem tra 1 lan.
 function Wait-Ripe {
+    # Doc dong ho tren o dat: biet con bao lau moi chin -> lau hon $WaitRipeMinutes thi khong cho, hen dung gio
+    $tr = Get-TimerRipe
+    if ($tr) {
+        $script:GrowRipe = $tr.At
+        Log "Dong ho o dat: o chin som nhat con $($tr.Left) (luc $($tr.At.ToString('HH:mm dd/MM')))"
+        if ($tr.Left.TotalMinutes -gt $WaitRipeMinutes) { Log "Con lau hon $WaitRipeMinutes phut -> khong cho"; return $false }
+    }
     if ($WaitRipeMinutes -le 0) { return $false }
     Log "Chua co o chin, cho toi da $WaitRipeMinutes phut..."
     $start = Get-Date
@@ -960,7 +1005,7 @@ function Count-TimerBars {
     return [Math]::Min($bars.Count, $PlotCount)
 }
 
-function Sow-Potatoes($harvested) {
+function Sow-Seeds($harvested) {
     # Khong thu hoach duoc o nao va ruong khong trong -> cay dang lon, khong gieo
     if ($harvested -eq 0 -and -not $script:FieldEmpty) {
         Log "Khong co o chin, cay dang lon -> bo qua gieo hat"
@@ -974,40 +1019,145 @@ function Sow-Potatoes($harvested) {
     Log "Bien go ruong tai ($($sign.X),$($sign.Y))"
     Step "ruong_trong"
 
-    Snap | Out-Null
-    $b = Find "btn_sow" 15
-    Log "Bam Gieo hat"; Tap $b[0].X $b[0].Y
-    $title = WaitFor "seed_panel_title" 15 10
-    if (-not $title) { Save-Shot "loi_bang_hat"; throw "Không mở được bảng hạt giống" }
+    $key = $script:SeedKey
+    $title = Open-SeedPanel
+    $seed = Find-Seed $title $key
+    $used = $key
+    if (-not $seed -and $key -ne $DefaultSeed) {
+        Log "Khong con hat $key trong bang -> gieo $DefaultSeed thay"
+        $script:SeedNotes += "⚠️ Hết hạt $(Seed-Text $key) → gieo $(Seed-Text $DefaultSeed) thay"
+        $seed = Find-Seed $title $DefaultSeed; $used = $DefaultSeed
+    }
+    if (-not $seed) {
+        Save-Shot "loi_khong_co_hat"
+        if ($used -eq 'khoai') { throw "Không tìm thấy hạt khoai tây" } else { throw "Không tìm thấy hạt $(Seed-Text $used)" }
+    }
+    Step "bang_hat"
+    if (Sow-Drag $seed $sign $used) { $script:SowTime = Get-Date; $script:SownSeeds += $used }
 
-    # Tim hat khoai tay; neu chua thay thi cuon danh sach xuong
-    $seed = $null
-    $region = @(($title.X - 220), ($title.Y + 50), 440, 380)
-    for ($scroll = 0; $scroll -le 6 -and -not $seed; $scroll++) {
+    # Hat da chon co the khong du 10 o -> keo them hat mac dinh qua ca ruong (o da co cay game bo qua, khong hien hop xac nhan)
+    if ($FillWithDefault -and $script:SowTime -and $used -ne $DefaultSeed) {
+        Nap 2
+        $title = Open-SeedPanel
+        $seed = Find-Seed $title $DefaultSeed
+        if ($seed) {
+            if (Sow-Drag $seed $sign $DefaultSeed -Fill) {
+                $script:SownSeeds += $DefaultSeed
+                $script:SeedNotes += "ℹ️ Hạt $(Seed-Text $used) không đủ cả ruộng → gieo thêm $(Seed-Text $DefaultSeed) vào ô còn trống"
+            }
+        } else { Log "Khong thay hat $DefaultSeed de gieo kin ruong (bo qua)" }
+    }
+    return $sign
+}
+
+# Ten hat de hien thi: "🍇 nho"
+function Seed-Text($key) { "$($SeedTypes[$key].Icon) $($SeedTypes[$key].Name)" }
+
+# Bang hat dang mo thi dung luon, chua mo thi bam nut "gieo hat"
+function Open-SeedPanel {
+    Snap | Out-Null
+    $t = Find "seed_panel_title" 15
+    if ($t.Count) { return $t[0] }
+    # 19/11: vua nhan thuong xong bam "gieo hat" game chua nhan -> bam lai 1 lan truoc khi bao loi
+    for ($k = 1; $k -le 2; $k++) {
         Snap | Out-Null
-        $r = Find "seed_potato" 12 $region
-        if ($r.Count) { $seed = $r[0]; break }
-        Log "Chua thay hat khoai tay, cuon danh sach..."
-        Swipe $title.X ($title.Y + 330) $title.X ($title.Y + 150) 600
+        $b = Find "btn_sow" 15
+        if (-not $b.Count) { Save-Shot "loi_nut_gieo"; throw "Không thấy nút Gieo hạt" }
+        Log "Bam Gieo hat$(if ($k -gt 1) { ' (lan 2)' })"; Tap $b[0].X $b[0].Y
+        $t = WaitFor "seed_panel_title" 15 8
+        if ($t) { return $t }
+    }
+    Save-Shot "loi_bang_hat"; throw "Không mở được bảng hạt giống"
+}
+
+# Tim hat $key trong bang (cuon xuong toi 5 lan, roi cuon nguoc len). Khong co -> $null (het hat / chua tung co)
+function Find-Seed($title, $key) {
+    # KHONG dat ten bien $tpl: PowerShell khong phan biet hoa thuong + pham vi dong -> Find se doc nham thanh $Tpl (thu muc mau)
+    $seedTpl = $SeedTypes[$key].Tpl
+    $region = @(($title.X - 220), ($title.Y + 50), 440, 380)
+    for ($k = 0; $k -le 12; $k++) {
+        Snap | Out-Null
+        $r = Find $seedTpl $SeedMaxScore $region
+        if ($r.Count) { Log "Hat $key tai ($($r[0].X),$($r[0].Y)) score=$([math]::Round($r[0].Score,1))"; return $r[0] }
+        if ($k -eq 12) { break }
+        if ($k -lt 5) { Log "Chua thay hat $key, cuon danh sach xuong..."; Swipe $title.X ($title.Y + 330) $title.X ($title.Y + 150) 600 }
+        else { Log "Chua thay hat $key, cuon danh sach len..."; Swipe $title.X ($title.Y + 150) $title.X ($title.Y + 330) 600 }
         Nap 1.5
     }
-    if (-not $seed) { Save-Shot "loi_khong_co_hat_khoai"; throw "Không tìm thấy hạt khoai tây" }
-    Log "Hat khoai tay tai ($($seed.X),$($seed.Y))"
-    Step "bang_hat"
+    return $null
+}
 
+# Keo hat tu bang qua 10 o dat roi bam xac nhan. Tra ve $true neu co hop xac nhan (= co o duoc gieo)
+function Sow-Drag($seed, $sign, $key, [switch]$Fill) {
     $pts = @(, @($seed.X, $seed.Y))
     foreach ($o in $PlotOffsets) {
         $x = [Math]::Min(1590, [Math]::Max(10, $sign.X + $o[0]))
         $y = [Math]::Min(890,  [Math]::Max(10, $sign.Y + $o[1]))
         $pts += , @($x, $y)
     }
-    Log "Keo hat qua $PlotCount o dat..."
+    Log "Keo hat $key qua $PlotCount o dat$(if ($Fill) { ' (gieo kin o con trong)' })..."
     Drag-Path $pts
-
     $ok = WaitFor "btn_confirm" 12 6
-    if ($ok) { Step "xac_nhan"; Log "Xac nhan gieo"; Tap $ok.X $ok.Y; $script:SowTime = Get-Date; Nap 3 }
+    if ($ok) { Step "xac_nhan"; Log "Xac nhan gieo $key"; Tap $ok.X $ok.Y; Nap 3; return $true }
+    if ($Fill) { Log "Khong co hop xac nhan -> ruong da kin, khong can gieo them" }
     else { Log "Khong thay hop xac nhan (co the o dat khong trong)" }
-    return $sign
+    return $false
+}
+
+# ---- Dong ho dem nguoc tren o dat ----
+# Doc tren anh chup moi nhat. Tra ve danh sach TimeSpan (bo dong ho co chu so khong chac).
+function Read-PlotTimers {
+    $out = New-Object System.Collections.ArrayList
+    if (-not $ReadTimers) { return ,$out }
+    try { $lines = [Vision]::ReadTimers($Shot, (Join-Path $Tpl "timer_digits.txt"), 0, 40, 1300, 660) }
+    catch { Log "Doc dong ho loi: $($_.Exception.Message)"; return ,$out }
+    foreach ($l in $lines) {
+        $p = $l -split ' '
+        if ($p.Count -lt 4 -or $p[2] -notmatch '^(\d\d):([0-5]\d):([0-5]\d)$') { continue }
+        $ts = New-Object TimeSpan ([int]$Matches[1]), ([int]$Matches[2]), ([int]$Matches[3])
+        $d = [double]::Parse($p[3], [Globalization.CultureInfo]::InvariantCulture)
+        if ($d -le $TimerMaxDist) { [void]$out.Add($ts) }
+    }
+    return ,$out
+}
+
+# Gio chin som nhat theo dong ho (chup toi da 3 lan). Lay dong ho ngan nhat co it nhat 1 dong ho khac khop (+-90 giay)
+# de 1 dong ho doc sai khong lam hen som. Tra ve { At, Left, Count } hoac $null.
+function Get-TimerRipe {
+    if (-not $ReadTimers) { return $null }
+    for ($k = 0; $k -lt 3; $k++) {
+        if ($k) { Nap 1 }
+        Snap | Out-Null
+        $raw = Read-PlotTimers                 # ArrayList (,$out) -> gan bien truoc roi moi pipe de duoc tung phan tu
+        $ts = @($raw | Sort-Object)
+        if (-not $ts.Count) { continue }
+        $pick = $null
+        for ($i = 0; $i -lt $ts.Count -and $null -eq $pick; $i++) {
+            for ($j = 0; $j -lt $ts.Count; $j++) {
+                if ($i -ne $j -and [Math]::Abs(($ts[$i] - $ts[$j]).TotalSeconds) -le 90) { $pick = $ts[$i]; break }
+            }
+        }
+        if ($null -eq $pick -and $ts.Count -eq 1) { $pick = $ts[0] }
+        if ($null -ne $pick) { return [pscustomobject]@{ At = (Get-Date).Add($pick); Left = $pick; Count = $ts.Count } }
+    }
+    return $null
+}
+
+function Format-Left([TimeSpan]$t) { if ($t.TotalHours -ge 1) { "{0}h{1:D2}" -f [int][math]::Floor($t.TotalHours), $t.Minutes } else { "$([int][math]::Ceiling($t.TotalMinutes)) phút" } }
+
+# Thoi gian lon tung loai hat (hoc tu dong ho luc vua gieo): state\thoi_gian_lon.json { "nho": "06:00:00", ... }
+function Get-GrowTimes {
+    $f = Join-Path $StateDir "thoi_gian_lon.json"
+    $h = @{}
+    if (Test-Path $f) { try { (Get-Content $f -Raw | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $h[$_.Name] = [TimeSpan]::Parse($_.Value) } } catch {} }
+    return $h
+}
+function Save-GrowTime($key, [TimeSpan]$t) {
+    $h = Get-GrowTimes
+    $h[$key] = New-Object TimeSpan ([int][math]::Floor($t.TotalHours)), ([int][math]::Round($t.Minutes / 5.0) * 5), 0   # lam tron 5 phut
+    $o = [ordered]@{}; foreach ($k in ($h.Keys | Sort-Object)) { $o[$k] = $h[$k].ToString() }
+    New-Item -ItemType Directory -Force $StateDir | Out-Null
+    $o | ConvertTo-Json | Set-Content -Path (Join-Path $StateDir "thoi_gian_lon.json") -Encoding UTF8
 }
 
 function Verify-Sown($sign) {
@@ -1018,14 +1168,32 @@ function Verify-Sown($sign) {
         if ((Find "sprout" 18 @(($x-70), ($y-80), 140, 120)).Count) { $found++ }
     }
     Save-Shot "ket_qua"
-    # nhan vat / ten nhan vat co the che 1-2 o
-    $script:Sprouts = $found
-    if ($found -ge ($PlotCount - 2)) {
-        Log "KIEM TRA OK: thay mam cay o $found/$PlotCount o"
-        Add-Photo (Caption "2/2 Sau khi trồng khoai: OK – thấy mầm cây ở $found/$PlotCount ô")
+    # mam khoai (anh mau sprout) hoac dong ho dem nguoc (moi loai hat deu co) - lay so lon hon
+    $tr = Get-TimerRipe
+    $timerN = if ($tr) { $tr.Count } else { 0 }
+    $seen = [Math]::Max($found, $timerN)
+    $script:Sprouts = $seen
+    $used = @($script:SownSeeds | Select-Object -Unique)
+    $grow = Get-GrowTimes
+    if ($tr) {
+        $script:SowRipe = $tr.At
+        Log "Dong ho o dat: chin som nhat sau $($tr.Left) -> $($tr.At.ToString('HH:mm dd/MM')) (doc duoc $timerN dong ho)"
+        if ($used.Count -eq 1) { Save-GrowTime $used[0] ($tr.Left + ((Get-Date) - $script:SowTime)) }
     } else {
-        Log "CANH BAO: chi thay mam cay o $found/$PlotCount o - xem anh ket_qua"
-        Add-Photo (Caption "2/2 Sau khi trồng khoai: ⚠️ CẢNH BÁO – chỉ thấy mầm cây ở $found/$PlotCount ô")
+        $first = $used[0]
+        $est = if ($first -and $grow.ContainsKey($first)) { $grow[$first] } else { [TimeSpan]::FromHours($GrowHours) }
+        $script:SowRipe = $script:SowTime.Add($est)
+        Log "Khong doc duoc dong ho -> uoc luong chin sau $est ($($script:SowRipe.ToString('HH:mm dd/MM')))"
+        $script:SeedNotes += "⚠️ Không đọc được đồng hồ trên ô đất → giờ chín ước lượng ($(Format-Left $est))"
+    }
+    $what = ($used | ForEach-Object { Seed-Text $_ }) -join ' + '
+    # nhan vat / ten nhan vat co the che 1-2 o
+    if ($seen -ge ($PlotCount - 2)) {
+        Log "KIEM TRA OK: thay cay moi o $seen/$PlotCount o (mam $found, dong ho $timerN)"
+        Add-Photo (Caption "2/2 Sau khi trồng $($what): OK – thấy cây mới ở $seen/$PlotCount ô")
+    } else {
+        Log "CANH BAO: chi thay cay moi o $seen/$PlotCount o (mam $found, dong ho $timerN) - xem anh ket_qua"
+        Add-Photo (Caption "2/2 Sau khi trồng $($what): ⚠️ CẢNH BÁO – chỉ thấy cây mới ở $seen/$PlotCount ô")
     }
 }
 
@@ -1033,6 +1201,10 @@ function Verify-Sown($sign) {
 # state\<tai khoan>.json: { ripe = gio khoai chin (lan gieo gan nhat), retries = so lan thu lai lien tiep }
 $StateDir = Join-Path $Root "state"
 $script:RipeAt = $null
+$script:SowRipe = $null      # gio chin cua lan gieo nay (dong ho o dat, hoac uoc luong)
+$script:GrowRipe = $null     # gio chin doc tu dong ho khi cay dang lon (khong gieo)
+$script:SownSeeds = @()      # cac loai hat da gieo lan nay
+$script:SeedNotes = @()      # dong ghi chu ve hat tren Telegram
 
 function Get-FarmState {
     $f = Join-Path $StateDir "$Account.json"
@@ -1059,7 +1231,7 @@ function Register-NextRun([datetime]$at) {
     try { $old = Get-ScheduledTask -TaskName "DDTank Farm - $Account" -ErrorAction Stop; if ("$($old.Principal.RunLevel)" -eq 'Highest') { $rl = 'Highest' } } catch {}
     $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel $rl
     Register-ScheduledTask -TaskName "DDTank Farm - $Account" -Action $action -Trigger $trigger -Settings $settings `
-        -Principal $principal -Description "Tu lap lich: thu hoach + trong khoai cho $Account" -Force | Out-Null
+        -Principal $principal -Description "Tu lap lich: thu hoach + gieo hat cho $Account" -Force | Out-Null
 }
 
 # Thoi diem $t (gio may) co roi vao gio bao tri game khong.
@@ -1122,18 +1294,22 @@ function Plan-NextRun([string]$outcome) {
 
     switch ($outcome) {
         'sown' {
-            $ripe = $script:SowTime.AddHours($GrowHours); $retries = 0
-            $at = $ripe.AddMinutes($AutoDelayMinutes); $why = "khoai chín $($ripe.ToString('HH:mm'))"
+            $ripe = if ($script:SowRipe) { $script:SowRipe } else { $script:SowTime.AddHours($GrowHours) }; $retries = 0
+            $at = $ripe.AddMinutes($AutoDelayMinutes); $why = "cây chín $($ripe.ToString('HH:mm'))"
         }
         'growing' {
-            if ($ripe -and $ripe -gt $now) {
-                $retries = 0; $at = $ripe.AddMinutes($AutoDelayMinutes); $why = "khoai chín $($ripe.ToString('HH:mm')), theo lần gieo trước"
+            if ($script:GrowRipe) {
+                # vua doc dong ho tren o dat -> chinh xac hon gio luu tu lan gieo truoc
+                $ripe = $script:GrowRipe; $retries = 0
+                $at = $ripe.AddMinutes($AutoDelayMinutes); $why = "cây chín $($ripe.ToString('HH:mm')), theo đồng hồ trên ô đất"
+            } elseif ($ripe -and $ripe -gt $now) {
+                $retries = 0; $at = $ripe.AddMinutes($AutoDelayMinutes); $why = "cây chín $($ripe.ToString('HH:mm')), theo lần gieo trước"
             } elseif ($ripe -and $retries -lt $MaxRetries) {
-                $retries++; $at = $now.AddMinutes($RetryMinutes); $why = "khoai chưa chín, thử lại lần $retries/$MaxRetries"
+                $retries++; $at = $now.AddMinutes($RetryMinutes); $why = "cây chưa chín, thử lại lần $retries/$MaxRetries"
             } else {
                 Save-FarmState $ripe $retries
-                Log "Khong biet gio khoai chin -> khong tu lap lich"
-                return "⚠️ Không biết giờ khoai chín → chưa tự lập lịch. Gửi /chay $Account khi khoai chín."
+                Log "Khong biet gio cay chin -> khong tu lap lich"
+                return "⚠️ Không biết giờ cây chín → chưa tự lập lịch. Gửi /chay $Account khi cây chín."
             }
         }
         'busy' { $at = $now.AddMinutes($RetryMinutes); $why = "đang có lượt chạy khác, thử lại" }        'offline' { $at = $now.AddMinutes($OfflineRetryMinutes); $why = "mất mạng, thử lại – không tính là lỗi" }
@@ -1247,8 +1423,15 @@ function View-Farm {
         $s = Find-FarmSign
         $planted = if ($s) { Count-Planted $s } else { -1 }
     }
+    $tr = Get-TimerRipe
+    if ($tr) {
+        $script:GrowRipe = $tr.At
+        Log "Dong ho o dat: o chin som nhat con $($tr.Left) (luc $($tr.At.ToString('HH:mm dd/MM')), doc duoc $($tr.Count) dong ho)"
+        if ($planted -lt $tr.Count) { $planted = [Math]::Min($tr.Count, $PlotCount) }
+    }
     $care = Find-CareIcons
     $state = if ($hands) { "có ô đã chín (thấy $hands bàn tay thu hoạch)" }
+             elseif ($planted -gt 0 -and $tr) { "cây đang lớn ở $planted/$PlotCount ô, ô chín sớm nhất còn $(Format-Left $tr.Left) (lúc $($tr.At.ToString('HH:mm')))" }
              elseif ($planted -gt 0) { "cây đang lớn ở $planted/$PlotCount ô" }
              elseif ($planted -eq 0) { "ruộng trống" }
              else { "không xác định được (không thấy thanh thời gian lẫn biển gỗ cạnh ruộng)" }
@@ -1298,6 +1481,7 @@ function Add-History {
             kq   = $(if ($ViewOnly -and $script:Outcome -ne 'error') { 'view' } else { [string]$script:Outcome })
             thu  = [int]$harvested
             gieo = [bool]$script:SowTime
+            hat  = (@($script:SownSeeds | Select-Object -Unique) -join '+')
             mam  = [int]$script:Sprouts
             cho  = [int]$script:WaitedRipeMin
             loi  = [string]$script:ErrText
@@ -1318,12 +1502,19 @@ if ($TestTelegram) {
             if ($f) { break }
         }
         if (-not $f) { continue }
-        if ($f.Name -like "*ket_qua*") { $sow = $f.LastWriteTime; $label = "2/2 Sau khi trồng khoai" } else { $label = "1/2 Sau khi thu hoạch" }
+        if ($f.Name -like "*ket_qua*") { $sow = $f.LastWriteTime; $label = "2/2 Sau khi trồng" } else { $label = "1/2 Sau khi thu hoạch" }
         $test += @{ Path = $f.FullName; Caption = (Caption "[GỬI THỬ] $label ($($f.Name))") }
     }
     if (-not $test.Count) { Log "Chua co anh nao trong logs\ de gui thu"; exit 1 }
     Send-Telegram $test (Build-Summary $sow)
     exit 0
+}
+
+# Loai hat lan nay: sai ten thi bao loi ngay, khong mo thiet bi, khong dong vao lich
+$script:SeedKey = $DefaultSeed
+if ($Seed) {
+    $script:SeedKey = ConvertTo-SeedKey $Seed
+    if (-not $script:SeedKey) { Log "LOI: Không có loại hạt '$Seed'. Các loại: $(Get-SeedListText)"; exit 1 }
 }
 
 # Chi 1 lan chay mot luc (lich tu dong va lenh /chay tu bot Telegram co the trung nhau)
@@ -1340,7 +1531,7 @@ $exitCode = 0
 $script:StartTime = Get-Date
 $harvested = 0
 try {
-    Log "===== BAT DAU (tai khoan: $(if ($Account) { $Account } else { '-' })$(if ($ViewOnly) { ', chi xem ruong' })$(if ($Manual) { ', chay tay' })) ====="
+    Log "===== BAT DAU (tai khoan: $(if ($Account) { $Account } else { '-' })$(if ($ViewOnly) { ', chi xem ruong' } else { ", hat: $($script:SeedKey)" })$(if ($Manual) { ', chay tay' })) ====="
     try { Clean-OldLogs } catch { Log "Don log loi: $($_.Exception.Message)" }
     Clear-StaleAdb
     # Dang /tamdung -> lich tu dong khong chay (chay tay -Manual / xem ruong van chay), hen lai khi het tam dung
@@ -1370,7 +1561,8 @@ try {
     }
     # Lich du phong: hen san 1 luot sau $SafetyRunMin phut. Luot nay bi treo / bi Task Scheduler diet (45 phut) thi van con
     # luot sau (19/11 00:26 bi diet giua chung -> mat lich toi khi chay tay). Xong binh thuong thi Plan-NextRun ghi de.
-    if ($AutoSchedule -and $Account -and -not $ViewOnly -and -not $LoginOnly -and -not $SkipLaunch -and $SafetyRunMin -gt 0) {
+    if ($AutoSchedule -and $Account -and -not $ViewOnly -and -not $LoginOnly -and -not $SkipLaunch -and $SafetyRunMin -gt 0 -and
+        -not (Test-Path (Join-Path $StateDir "$Account.off"))) {   # /huylich: khong hen lich du phong (Plan-NextRun cung khong ghi de)
         try {
             $safe = (Get-Date).AddMinutes($SafetyRunMin)
             Register-NextRun $safe
@@ -1416,13 +1608,13 @@ try {
             if (Wait-Ripe) { $harvested = Harvest-All }
         }
     }
-    if ($harvested -gt 0) {
+    if ($harvested -gt $harvestedBefore) {    # chay lai ca luot ma lan nay khong thu them o nao -> khong gui lai anh
         Start-Sleep 1
         Save-Shot "sau_thu_hoach"
         $waitNote = if ($script:WaitedRipeMin) { " (đã chờ cây chín $($script:WaitedRipeMin) phút)" } else { "" }
         Add-Photo (Caption "1/2 Sau khi thu hoạch: $harvested ô$waitNote")
     }
-    $sign = Retry-Step 'gieo_hat' 'gieo hạt' { Sow-Potatoes $harvested }
+    $sign = Retry-Step 'gieo_hat' 'gieo hạt' { Sow-Seeds $harvested }
     if ($sign) { Verify-Sown $sign }
     $script:Outcome = if ($script:SowTime) { 'sown' } else { 'growing' }
     Log "===== HOAN THANH ====="

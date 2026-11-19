@@ -11,6 +11,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 
 public class VMatch
 {
@@ -195,5 +196,196 @@ public static class Vision
         using (var b = ToBitmap(Load(src)))
         using (var c = b.Clone(new Rectangle(x, y, w, h), PixelFormat.Format24bppRgb))
             c.Save(dst, ImageFormat.Png);
+    }
+
+    // ---------- doc dong ho dem nguoc tren o dat ("03:06:53") ----------
+    // Chu dong ho: ruot xanh xam nhat (G,B >= 150, G~B, R<=G), vien xanh dam -> lay ruot lam mat na.
+    // Tim moi cum diem ruot cao 7-16px lam "hat giong", quanh do tach cot thanh ky tu, giu chuoi dung mau dd:dd:dd.
+    // Chu so phan loai bang lang gieng gan nhat (luoi 6x10 + ti le rong/cao) voi mau trong templates\timer_digits.txt.
+    const int GW = 6, GH = 10;
+    class Glyph { public int X0, X1, Y0, Y1; public bool Colon; public double[] F; }
+
+    static bool TFill(Img s, int x, int y)
+    {
+        if (x < 0 || y < 0 || x >= s.W || y >= s.H) return false;
+        int i = (y * s.W + x) * 3; int B = s.P[i], G = s.P[i + 1], R = s.P[i + 2];
+        return G >= 150 && B >= 150 && Math.Abs(G - B) <= 35 && R <= G + 5;
+    }
+
+    static List<Glyph> Segment(Img s, int rx, int ry, int rw, int rh)
+    {
+        var res = new List<Glyph>();
+        int[] rowCnt = new int[rh];
+        for (int y = 0; y < rh; y++) for (int x = 0; x < rw; x++) if (TFill(s, rx + x, ry + y)) rowCnt[y]++;
+        int bestA = -1, bestB = -1, a = -1, gap = 0;
+        for (int y = 0; y <= rh; y++)
+        {
+            bool on = y < rh && rowCnt[y] >= 3;
+            if (on) { if (a < 0) a = y; gap = 0; }
+            else if (a >= 0)
+            {
+                gap++;
+                if (gap > 1 || y == rh)
+                {
+                    int b = y - gap;
+                    if (b - a > bestB - bestA) { bestA = a; bestB = b; }
+                    a = -1; gap = 0;
+                }
+            }
+        }
+        if (bestA < 0 || bestB - bestA < 6) return res;
+        int y0 = ry + bestA, y1 = ry + bestB, th = y1 - y0 + 1, c0 = -1;
+        for (int x = 0; x <= rw; x++)
+        {
+            bool on = false;
+            if (x < rw) for (int y = y0; y <= y1; y++) if (TFill(s, rx + x, y)) { on = true; break; }
+            if (on) { if (c0 < 0) c0 = x; }
+            else if (c0 >= 0) { AddGlyph(s, res, rx + c0, rx + x - 1, y0, y1, th); c0 = -1; }
+        }
+        return res;
+    }
+
+    static void AddGlyph(Img s, List<Glyph> res, int x0, int x1, int y0, int y1, int th)
+    {
+        int w = x1 - x0 + 1;
+        if (w > th * 0.75 + 1)   // 2 chu dinh nhau -> tach o cot it diem nhat
+        {
+            int best = -1, bestC = int.MaxValue;
+            for (int x = x0 + w / 3; x <= x1 - w / 3; x++)
+            {
+                int c = 0; for (int y = y0; y <= y1; y++) if (TFill(s, x, y)) c++;
+                if (c < bestC) { bestC = c; best = x; }
+            }
+            AddGlyph(s, res, x0, best - 1, y0, y1, th); AddGlyph(s, res, best + 1, x1, y0, y1, th);
+            return;
+        }
+        int gy0 = y1, gy1 = y0, cnt = 0;
+        for (int y = y0; y <= y1; y++) for (int x = x0; x <= x1; x++) if (TFill(s, x, y)) { cnt++; if (y < gy0) gy0 = y; if (y > gy1) gy1 = y; }
+        if (cnt < 2) return;
+        var g = new Glyph { X0 = x0, X1 = x1, Y0 = gy0, Y1 = gy1 };
+        if (w <= 3 && cnt <= 12) g.Colon = true;
+        else if (w <= 2 && (gy1 - gy0 + 1) < th * 0.6) return;
+        if (!g.Colon)
+        {
+            g.F = new double[GW * GH + 1];
+            int hh = y1 - y0 + 1;
+            for (int gy = 0; gy < GH; gy++) for (int gx = 0; gx < GW; gx++)
+            {
+                int ax = x0 + gx * w / GW, bx = x0 + (gx + 1) * w / GW; if (bx <= ax) bx = ax + 1;
+                int ay = y0 + gy * hh / GH, by = y0 + (gy + 1) * hh / GH; if (by <= ay) by = ay + 1;
+                int on = 0, tot = 0;
+                for (int y = ay; y < by; y++) for (int x = ax; x < bx; x++) { tot++; if (TFill(s, x, y)) on++; }
+                g.F[gy * GW + gx] = tot > 0 ? on / (double)tot : 0;
+            }
+            g.F[GW * GH] = w / (double)hh * 2;
+        }
+        res.Add(g);
+    }
+
+    static List<KeyValuePair<char, double[]>> digitModel; static string digitModelPath;
+    static List<KeyValuePair<char, double[]>> Model(string path)
+    {
+        if (digitModel != null && digitModelPath == path) return digitModel;
+        var m = new List<KeyValuePair<char, double[]>>();
+        if (File.Exists(path))
+            foreach (var line in File.ReadAllLines(path))
+            {
+                var p = line.Trim().Split(' ');
+                if (p.Length != GW * GH + 2 || p[0].Length != 1) continue;
+                var f = new double[GW * GH + 1];
+                for (int i = 0; i < f.Length; i++) f[i] = double.Parse(p[i + 1], System.Globalization.CultureInfo.InvariantCulture);
+                m.Add(new KeyValuePair<char, double[]>(p[0][0], f));
+            }
+        digitModel = m; digitModelPath = path; return m;
+    }
+
+    static char Classify(double[] f, List<KeyValuePair<char, double[]>> model, out double dist)
+    {
+        char best = '?'; dist = double.MaxValue;
+        foreach (var kv in model)
+        {
+            double d = 0; for (int i = 0; i < f.Length; i++) { double e = f[i] - kv.Value[i]; d += e * e; }
+            if (d < dist) { dist = d; best = kv.Key; }
+        }
+        return best;
+    }
+
+    // Tim cac chuoi 8 ky tu dd:dd:dd trong vung. Tra ve danh sach glyph (8 cai) + vi tri.
+    static List<List<Glyph>> FindTimerGlyphs(Img s, int rx, int ry, int rw, int rh)
+    {
+        if (rw <= 0) rw = s.W; if (rh <= 0) rh = s.H;
+        int x0 = Math.Max(0, rx), y0 = Math.Max(0, ry), x1 = Math.Min(s.W, rx + rw), y1 = Math.Min(s.H, ry + rh);
+        // hat giong: cot co >= 7 diem ruot lien tiep (net doc cua chu so)
+        var seeds = new List<int[]>();
+        for (int x = x0; x < x1; x += 3)
+        {
+            int run = 0;
+            for (int y = y0; y < y1; y++)
+            {
+                if (TFill(s, x, y)) run++;
+                else { if (run >= 7 && run <= 16) seeds.Add(new[] { x, y - run / 2 }); run = 0; }
+            }
+        }
+        var found = new List<List<Glyph>>();
+        foreach (var sd in seeds)
+        {
+            bool done = false;
+            foreach (var f in found)
+                if (sd[0] >= f[0].X0 - 4 && sd[0] <= f[7].X1 + 4 && sd[1] >= f[0].Y0 - 4 && sd[1] <= f[0].Y1 + 4) { done = true; break; }
+            if (done) continue;
+            var gs = Segment(s, sd[0] - 70, sd[1] - 11, 140, 22);
+            for (int i = 0; i + 8 <= gs.Count; i++)
+            {
+                bool ok = true;
+                for (int k = 0; k < 8 && ok; k++)
+                {
+                    bool colon = (k == 2 || k == 5);
+                    if (gs[i + k].Colon != colon) ok = false;
+                    if (k > 0 && gs[i + k].X0 - gs[i + k - 1].X1 > 6) ok = false;
+                }
+                if (!ok) continue;
+                if (sd[0] < gs[i].X0 - 2 || sd[0] > gs[i + 7].X1 + 2) continue;
+                bool dup = false;
+                foreach (var f in found) if (Math.Abs(f[0].X0 - gs[i].X0) < 10 && Math.Abs(f[0].Y0 - gs[i].Y0) < 10) { dup = true; break; }
+                if (!dup) found.Add(gs.GetRange(i, 8));
+                break;
+            }
+        }
+        return found;
+    }
+
+    // Doc dong ho tren anh chup: moi dong "X Y hh:mm:ss khoang_cach_lon_nhat" (chu so khong chac -> '?').
+    public static List<string> ReadTimers(string screenPath, string modelPath, int rx, int ry, int rw, int rh)
+    {
+        Img s = Screen(screenPath); var model = Model(modelPath);
+        var res = new List<string>();
+        foreach (var gs in FindTimerGlyphs(s, rx, ry, rw, rh))
+        {
+            var sb = new StringBuilder(); double worst = 0;
+            foreach (var g in gs)
+            {
+                if (g.Colon) { sb.Append(':'); continue; }
+                double d; char c = Classify(g.F, model, out d);
+                if (d > worst) worst = d; sb.Append(c);
+            }
+            res.Add(string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0} {1} {2} {3:F2}",
+                (gs[0].X0 + gs[7].X1) / 2, (gs[0].Y0 + gs[0].Y1) / 2, sb, worst));
+        }
+        return res;
+    }
+
+    // Tao mau chu so (de huan luyen): moi dong "chu_so f1 ... f61" cho dong ho thu i co gia tri 'text' (dang hh:mm:ss)
+    public static List<string> TimerSamples(string screenPath, string text, int rx, int ry, int rw, int rh)
+    {
+        Img s = Screen(screenPath); var res = new List<string>();
+        foreach (var gs in FindTimerGlyphs(s, rx, ry, rw, rh))
+            for (int k = 0; k < 8; k++)
+            {
+                if (gs[k].Colon) continue;
+                var sb = new StringBuilder(); sb.Append(text[k]);
+                foreach (var v in gs[k].F) sb.Append(' ').Append(v.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
+                res.Add(sb.ToString());
+            }
+        return res;
     }
 }

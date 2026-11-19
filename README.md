@@ -87,6 +87,7 @@ run.bat -Account <tên tài khoản 7Road> [tuỳ chọn]
 | Tham số | Ý nghĩa |
 |---|---|
 | `-Account <tên>` | Tài khoản 7Road đã lưu trong app. **Luôn truyền vào**, bắt buộc khi game đòi đăng nhập |
+| `-Seed <loại hạt>` | Loại hạt gieo lần này: `khoai` (mặc định), `le`, `nho`, `tao`, `thanhlong`, `ngo`, `bapcai`, `catim` (gõ có dấu cũng được, vd `"bắp cải"`). Chỉ áp dụng cho lần chạy này, lượt tự động sau vẫn gieo khoai. Xem *Gieo nhiều loại hạt* ở mục 4 |
 | `-StepShots` | Lưu ảnh màn hình ở **từng bước** vào `logs\` để kiểm tra |
 | `-KeepDevice` | Không tắt thiết bị khi xong (để xem/test). App DDTank vẫn bị tắt |
 | `-LoginOnly` | Chỉ đăng nhập tới sảnh chính rồi dừng, không vào nông trại, không gửi Telegram |
@@ -104,6 +105,7 @@ Ví dụ:
 | `run.bat -Account tomcat12345 -LoginOnly -KeepDevice` | Chỉ thử bước đăng nhập |
 | `run.bat -Account tomcat12345 -TestTelegram` | Thử cấu hình Telegram |
 | `run.bat -Account tomcat12345 -ViewOnly` | Xem ruộng đang thế nào, không đụng vào cây |
+| `run.bat -Account tomcat12345 -Seed bapcai` | Thu hoạch rồi gieo bắp cải thay vì khoai |
 
 Mã thoát: `0` thành công (kể cả khi cây chưa chín nên bỏ qua), `1` lỗi (xem log), `2` đang có lượt khác chạy, `3` mất mạng, `4` giờ bảo trì game, `5` đang tạm dừng (`/tamdung`).
 
@@ -115,14 +117,14 @@ Trước khi mở MuMu, script **kiểm tra RAM trống và ổ đĩa**. RAM tr�
 
 Có 2 cách. **Nên dùng cách 1**, và đừng dùng cả 2 cho cùng một tài khoản, vì sẽ chạy thừa.
 
-### Cách 1: Tự lập lịch theo giờ khoai chín (mặc định, riêng từng tài khoản)
+### Cách 1: Tự lập lịch theo giờ cây chín (mặc định, riêng từng tài khoản)
 
 Mỗi lần chạy xong, script **tự hẹn lần chạy sau** của chính tài khoản đó. Lịch là một task Windows tên `DDTank Farm - <tài khoản>`, chạy 1 lần. Chỉ cần chạy tay 1 lần đầu để bắt đầu chuỗi (`run.bat -Account akaka` hoặc `/chay akaka` trên Telegram). Từ đó chuỗi tự nối tiếp.
 
 | Kết quả lần chạy | Lần sau được hẹn lúc |
 |---|---|
-| Gieo khoai xong | Khoai chín (giờ gieo + 8 tiếng) **− 5 phút** (hẹn trước giờ chín) |
-| Cây đang lớn, đã biết giờ chín từ lần gieo trước | Giờ chín − 5 phút (giờ đó đã qua hoặc còn dưới 2 phút thì hẹn 2 phút nữa) |
+| Gieo xong | Giờ chín **đọc từ đồng hồ đếm ngược trên ô đất** (vd `07:59:58`) **− 5 phút**. Không đọc được đồng hồ thì ước lượng: thời gian lớn đã học của loại hạt đó, chưa có thì 8 tiếng (khoai) |
+| Cây đang lớn | Đọc đồng hồ trên ô đất → giờ chín − 5 phút. Không đọc được thì dùng giờ chín lưu từ lần gieo trước (giờ đó đã qua hoặc còn dưới 2 phút thì hẹn 2 phút nữa). Đồng hồ còn lâu hơn 12 phút thì không ngồi chờ |
 | Đã chờ đủ 12 phút, quá giờ chín mà cây vẫn chưa chín | Sau 10 phút. Tối đa 3 lần, sau đó dừng chuỗi và báo về Telegram |
 | Không biết giờ chín (vd cây do người trồng tay) | Không hẹn, báo về Telegram để bạn tự `/chay` khi khoai chín |
 | Lỗi (đăng nhập, không thấy nút…) | **Làm lại ngay bước bị lỗi, tối đa 3 lần** (vào game: tắt app mở lại; mở nông trại / thu hoạch / gieo hạt: đóng popup đang che). Một bước lỗi đủ 3 lần thì khởi động lại thiết bị, chạy lại cả lượt 1 lần. Vẫn lỗi mới hẹn lại sau 30 phút; lỗi 3 lượt liên tiếp thì dừng chuỗi và báo Telegram. Telegram ghi từng lần làm lại *"🔁 Bước … lỗi lần N: … → làm lại bước"*. Lỗi mà thử lại cũng vô ích (chưa lưu mật khẩu, không thấy tài khoản, hết hạt khoai), mất mạng, giờ bảo trì, hoặc lượt đã chạy quá 35 phút thì không làm lại |
@@ -172,6 +174,17 @@ Nhờ vậy khoai được thu gần như **đúng lúc chín** và gieo lại n
 - Giờ đã hẹn có trong tin Telegram, dòng `⏰ Đã tự lập lịch lần tới: …`. Xem tất cả lịch: `/lich` trên Telegram.
 - **Dừng chuỗi** của 1 tài khoản: `/huylich <tài khoản>`. Lệnh này xoá lịch và tạo file `state\<tài khoản>.off`. **Bật lại**: `/chay <tài khoản>`, lệnh này đồng thời xoá đếm lỗi. Nếu không dùng bot: xoá file `.off` rồi chạy tay 1 lần.
 - Giờ chín của lần gieo gần nhất lưu ở `state\<tài khoản>.json`.
+
+**Gieo nhiều loại hạt** (thêm 19/11):
+- Chọn hạt cho **1 lần chạy**: `/chay akaka bapcai` trên Telegram hoặc `run.bat -Account akaka -Seed bapcai`. Không ghi hạt thì gieo `$DefaultSeed` (khoai). Lượt tự động sau đó vẫn gieo khoai.
+- Loại hạt có mẫu (`hat_giong.ps1`): `khoai` 🥔, `le` 🍐, `nho` 🍇, `tao` 🍎, `thanhlong` 🐉, `ngo` 🌽, `bapcai` 🥬, `catim` 🍆. Gõ có dấu / có cách cũng được (`thanh long`, `bắp cải`). Sai tên thì bot trả lời danh sách, không chạy.
+- Script tìm hạt trong bảng *gieo hạt* bằng ảnh mẫu (cuộn xuống rồi cuộn lên nếu chưa thấy). Mỗi tài khoản có danh sách hạt khác nhau, thứ tự khác nhau, không sao.
+- **Hết loại hạt đã chọn** (không còn trong bảng) → gieo khoai thay, Telegram ghi `⚠️ Hết hạt … → gieo 🥔 khoai tây thay`.
+- **Hạt không đủ 10 ô** → gieo xong kéo thêm khoai qua cả ruộng (ô đã có cây game tự bỏ qua) cho kín ruộng (`$FillWithDefault`). Ruộng đã kín thì game không hiện hộp xác nhận, script bỏ qua.
+- **Giờ chín**: mỗi loại lớn nhanh chậm khác nhau (bắp cải ~1 tiếng, khoai 8 tiếng), nên ngay sau khi gieo script **đọc đồng hồ đếm ngược trên từng ô** (`Vision.cs` → `ReadTimers`, mẫu chữ số `templates\timer_digits.txt`) và hẹn lần sau theo ô chín sớm nhất. Chỉ tin đồng hồ có ít nhất 1 đồng hồ khác khớp (±90 giây), để 1 ô đọc sai không làm hẹn sớm. Thời gian lớn từng loại học được lưu ở `state\thoi_gian_lon.json`, dùng khi không đọc được đồng hồ.
+- Thêm loại hạt mới: cắt ảnh mẫu 56×42 (giữa hình quả trên túi hạt, không lấy số lượng / viền ô) vào `templates\seed_<tên>.png`, thêm 1 dòng vào `hat_giong.ps1`.
+
+**Vào đúng tài khoản khi game nhớ phiên cũ** (thêm 19/11): mở game mà hiện thẳng nút *Vào game* (game tự đăng nhập bằng phiên trước, **không ghi là tài khoản nào**) trong khi lượt này chưa tự đăng nhập, script bấm nút *Tài khoản* bên phải để đăng xuất, rồi đăng nhập lại bằng `-Account`. Trước đây script bấm luôn *Vào game*, nên chạy tài khoản B ngay sau tài khoản A sẽ vào nhầm ruộng của A.
 - Tắt hẳn tính năng này: đặt `$AutoSchedule = $false` đầu file `ddtank_farm.ps1`. Các mốc −5 / 12 / 10 / 30 phút và số lần thử lại (3) cũng chỉnh ở đó.
 - Lịch tự lập có thiết lập giống lịch cố định bên dưới: đánh thức máy, chạy bù khi máy bật lại, tối đa 45 phút.
 
@@ -222,11 +235,11 @@ Ví dụ tin nhắn khi thu hoạch và trồng xong:
 ```
 🚜 DDTank [tomcat12345] 17/11 23:06
 1/2 Sau khi thu hoạch: 10 ô
-2/2 Sau khi trồng khoai: OK – thấy mầm cây ở 10/10 ô
+2/2 Sau khi trồng 🥔 khoai tây: OK – thấy cây mới ở 10/10 ô
 
 ✅ Xong việc lúc: 23:06 17/11/2026
-🥔 Thu hoạch tiếp theo (khoai chín): 07:05 18/11/2026
-⏰ Đã tự lập lịch lần tới: 07:00 18/11/2026 (khoai chín 07:05)
+🌾 Thu hoạch tiếp theo (cây chín): 07:05 18/11/2026
+⏰ Đã tự lập lịch lần tới: 07:00 18/11/2026 (cây chín 07:05)
 ```
 
 Các dạng tin khác:
@@ -234,9 +247,10 @@ Các dạng tin khác:
 | Trường hợp | Dòng nội dung |
 |---|---|
 | Ruộng trống | `1/2 Ruộng trống – không có cây để thu hoạch, trồng mới luôn` |
-| Trồng thiếu ô | `2/2 Sau khi trồng khoai: ⚠️ CẢNH BÁO – chỉ thấy mầm cây ở 6/10 ô` |
+| Trồng thiếu ô | `2/2 Sau khi trồng 🥔 khoai tây: ⚠️ CẢNH BÁO – chỉ thấy cây mới ở 6/10 ô` (đếm mầm khoai hoặc đồng hồ trên ô, ô bị nhân vật che có thể không đếm được) |
+| Gieo hạt khác (`/chay akaka bapcai`) | `2/2 Sau khi trồng 🥬 bắp cải: OK – thấy cây mới ở 9/10 ô`, có thể thêm `⚠️ Hết hạt 🥬 bắp cải → gieo 🥔 khoai tây thay` hoặc `ℹ️ Hạt … không đủ cả ruộng → gieo thêm 🥔 khoai tây vào ô còn trống` |
 | Chờ cây chín rồi thu | `1/2 Sau khi thu hoạch: 10 ô (đã chờ cây chín 4 phút)` |
-| Chờ đủ 12 phút cây vẫn chưa chín | `🌱 Chưa có ô chín (cây đang lớn) (đã chờ 12 phút) – không thu hoạch, không gieo` và `🥔 Khoai chín lúc: …` hoặc `🥔 Thu hoạch tiếp theo: chưa xác định (lần này không gieo)` |
+| Chờ đủ 12 phút cây vẫn chưa chín | `🌱 Chưa có ô chín (cây đang lớn) (đã chờ 12 phút) – không thu hoạch, không gieo` và `🌾 Cây chín lúc: … (theo đồng hồ trên ô đất)` hoặc `🌾 Thu hoạch tiếp theo: chưa xác định (lần này không gieo)` |
 | Có lỗi | `❌ LỖI: Không tìm thấy hạt khoai tây` (lỗi hiếm gặp từ Windows/ADB có thể là tiếng Anh) |
 | Có mạng lại sau khi mất mạng | `📵 Mất mạng từ … đến … – đã thử lại N lần (không tính là lỗi)` |
 | Chạy đúng giờ bảo trì game (tin chữ, không có ảnh) | `🛠️ Đang giờ bảo trì game (thứ 5 14:00–15:00) – không chạy lượt này.` |
@@ -244,8 +258,8 @@ Các dạng tin khác:
 
 Ý nghĩa các dòng tổng kết:
 - **Xong việc lúc**: thời điểm script chạy xong.
-- **Thu hoạch tiếp theo**: lúc bấm *Xác nhận* gieo + `$GrowHours` (mặc định 8 tiếng).
-- **Đã tự lập lịch lần tới**: giờ script vừa hẹn cho lần chạy sau của tài khoản này, kèm lý do (mục 4, cách 1). Có thể thay bằng `⚠️ Không biết giờ khoai chín…`, `⛔ Lỗi 3 lần liên tiếp…` hoặc `⏸️ Tự lập lịch đang tắt…`.
+- **Thu hoạch tiếp theo**: giờ chín đọc từ đồng hồ đếm ngược trên ô đất ngay sau khi gieo (không đọc được thì ước lượng, kèm dòng `⚠️ Không đọc được đồng hồ…`).
+- **Đã tự lập lịch lần tới**: giờ script vừa hẹn cho lần chạy sau của tài khoản này, kèm lý do (mục 4, cách 1). Có thể thay bằng `⚠️ Không biết giờ cây chín…`, `⛔ Lỗi 3 lần liên tiếp…` hoặc `⏸️ Tự lập lịch đang tắt…`.
 - **Lần chạy tự động tới**: chỉ hiện khi tắt tự lập lịch (`$AutoSchedule = $false`), lấy từ lịch cố định `DDTank Farm`.
 
 **Lưu ý mã hoá:** tin nhắn viết tiếng Việt có dấu và emoji, nên `ddtank_farm.ps1` phải được lưu dạng **UTF-8 có BOM** (PowerShell 5.1 cần BOM mới đọc đúng). Nếu tự sửa file bằng Notepad, chọn *Save As → Encoding: UTF-8 with BOM*. Lưu sai thì tin nhắn bị lỗi font.
@@ -341,7 +355,7 @@ Bot tự bật mỗi lần đăng nhập Windows, bị lỗi thì tự khởi đ
 
 | Lệnh | Tác dụng |
 |---|---|
-| `/chay <tài khoản>` | Chạy ngay thu hoạch + trồng, vd `/chay akaka`. Xong có ảnh gửi về như bình thường. Chạy được cả khi đang `/tamdung` |
+| `/chay <tài khoản> [loại hạt]` | Chạy ngay thu hoạch + trồng, vd `/chay akaka`, `/chay akaka bapcai`, `/chay akaka thanh long`. Không ghi hạt = khoai (mục 4, *Gieo nhiều loại hạt*). Xong có ảnh gửi về như bình thường. Chạy được cả khi đang `/tamdung` |
 | `/xemruong <tài khoản>` | Vào game chụp ruộng gửi về (~3–4 phút): có ô chín chưa (🖐️ bàn tay), cây đang lớn mấy ô, ruộng trống, **bao nhiêu ô cần tưới 💧 / có sâu 🐛**. Có giọt nước / con sâu thì **bấm 1 cái để tưới cây + bắt sâu cả ruộng** (game xử lý cả ruộng chỉ với 1 lần bấm) và gửi thêm ảnh sau khi chăm sóc. **Không thu hoạch, không gieo, không đổi lịch** |
 | `/trangthai` | Script có đang chạy không (tài khoản, từ lúc nào), thiết bị bật/tắt, lần chạy tự động tới, 6 dòng log cuối |
 | `/maytinh` | Sức khoẻ máy: RAM trống + 3 chương trình tốn RAM nhất, CPU, ổ đĩa, thời gian máy đã chạy, số lần tắt bất thường / màn hình xanh 7 ngày qua (kèm mã lỗi), Wi-Fi + số lần rớt 24 giờ, VPN, MuMu, bot, tự đăng nhập bật/tắt |
@@ -655,11 +669,12 @@ ddtank-farm\
 ├─ lap_lich.ps1 / .bat    cài / xem / xoá lịch
 ├─ telegram_bot.ps1       bot nhận lệnh Telegram (/chay, /trangthai, /dung…)
 ├─ ket_noi_mang.ps1       tự kết nối lại Wi-Fi khi mất mạng (dùng chung cho script nông trại + bot)
+├─ hat_giong.ps1          danh sách loại hạt + tên gọi (dùng chung cho script nông trại + bot)
 ├─ cai_bot.ps1 / .bat     cài / xem / gỡ bot (tự chạy khi đăng nhập Windows)
 ├─ telegram.json          bot_token + chat_id của bạn (KHÔNG chia sẻ)
 ├─ telegram.example.json  file mẫu
 ├─ README.md              tài liệu này
-├─ templates\             ảnh mẫu (chụp ở 1600x900)
+├─ templates\             ảnh mẫu (chụp ở 1600x900); seed_<tên>.png = hạt giống, timer_digits.txt = mẫu chữ số đồng hồ ô đất
 ├─ logs\                  log + ảnh mỗi lần chạy
 ├─ state\                 giờ khoai chín từng tài khoản (tự lập lịch), file .off = đã /huylich, .offline = đang mất mạng,
 │                         lich_su.jsonl = lịch sử mọi lượt chạy (/thongke), _tamdung.txt = đang /tamdung tới giờ nào
@@ -679,7 +694,12 @@ Cấu hình đầu `ddtank_farm.ps1`:
 | `$FarmWalkPoint` | `600, 190` | Điểm bấm để nhân vật đi tới cạnh ruộng |
 | `$BackRowWalkOffset` | `-133, -42` | Điểm "xanh" (lệch so với bàn tay ô đầu hàng sau) |
 | `$WaitRipeMinutes` | `12` | Cây đang lớn thì chờ tối đa bao nhiêu phút cho cây chín (0 = không chờ, kết thúc luôn) |
-| `$GrowHours` | `8` | Số giờ khoai chín (báo giờ thu hoạch tiếp theo + tự lập lịch) |
+| `$GrowHours` | `8` | Số giờ khoai chín – chỉ dùng khi **không đọc được** đồng hồ trên ô đất và chưa học được thời gian lớn của loại hạt |
+| `$DefaultSeed` | `khoai` | Hạt gieo khi không ghi `-Seed` / `/chay <tk> <hạt>`, và gieo thay khi hết hạt đã chọn |
+| `$FillWithDefault` | `$true` | Gieo hạt khác xong mà còn ô trống (hạt không đủ 10 ô) thì gieo thêm `$DefaultSeed` cho kín |
+| `$SeedMaxScore` | `13` | Ngưỡng ảnh mẫu hạt (khớp thật 0–10, hạt khác ≥ 19) |
+| `$ReadTimers` | `$true` | Đọc đồng hồ đếm ngược trên ô đất để biết giờ chín |
+| `$TimerMaxDist` | `9` | Chữ số lệch mẫu quá ngưỡng này thì bỏ đồng hồ đó (chỉ tin đồng hồ có đồng hồ khác khớp ±90 giây) |
 | `$AutoSchedule` | `$true` | Tự hẹn lần chạy sau theo giờ khoai chín (mục 4, cách 1) |
 | `$AutoDelayMinutes` | `-5` | Hẹn lệch so với giờ khoai chín bao nhiêu phút (âm = trước giờ chín; nên nhỏ hơn `$WaitRipeMinutes`) |
 | `$RetryMinutes` | `10` | Thử lại sau bao nhiêu phút nếu tới sớm / đang có lượt khác chạy |
@@ -752,7 +772,7 @@ Danh sách đề xuất ngày 18/11/2026. Cập nhật trạng thái mỗi khi l
 | 6 | Bot báo khi máy vừa khởi động lại + nguyên nhân (màn hình xanh / mất điện / Update) | ⬜ | `/maytinh` đã hiện số lần tắt bất thường 7 ngày, nhưng chưa tự nhắn |
 | 7 | Cảnh báo "lượt hẹn đã quá giờ mà chưa chạy" | ⬜ | Một phần: lịch dự phòng (dòng 33) |
 | 33 | Giới hạn thời gian cho mọi lệnh adb / MuMuManager; lịch dự phòng sau 50 phút; file ảnh riêng mỗi lượt; dọn adb treo | 🟡 | Sau sự cố 19/11 00:31 (mục 13). Đã kiểm tra lệnh treo bị cắt sau đúng giới hạn; lượt thật 19/11 08:28 chạy thông suốt. Chưa gặp lại thiết bị treo thật |
-| 34 | Kiểm tra đúng tài khoản trước khi thu hoạch; không chiếm thiết bị khi bạn đang chơi | ⬜ | Gặp 19/11 08:28 (mục 13). Đã làm thử "hoãn 15 phút khi game đang mở" rồi **bỏ theo yêu cầu** (19/11) |
+| 34 | Kiểm tra đúng tài khoản trước khi thu hoạch; không chiếm thiết bị khi bạn đang chơi | 🟡 | 19/11: game nhớ phiên cũ (hiện thẳng *Vào game*) → bấm *Tài khoản* đăng xuất rồi đăng nhập đúng `-Account` – test thật tài khoản 2 ngay sau tài khoản 1 09:46 ✅. **Chưa xử lý** trường hợp game đang mở sẵn ở sảnh của tài khoản khác. Gặp 19/11 08:28 (mục 13). Đã làm thử "hoãn 15 phút khi game đang mở" rồi **bỏ theo yêu cầu** (19/11) |
 | 32 | Kết nối lại: chọn Wi-Fi đã lưu có sóng mạnh nhất, kiểm tra Internet thật, không được thì chuyển mạng kế tiếp | 🟡 | Đọc danh sách / sắp xếp đã test (18/11, giả lập 3 Wi-Fi đã lưu). Máy mới lưu 1 Wi-Fi (*<tên Wi-Fi>*) nên chưa test chuyển mạng thật (mục 4) |
 | 31 | Tự kết nối lại Wi-Fi khi mất mạng (bật lại sóng Wi-Fi; netsh; khởi động lại card nếu có quyền admin) | ✅ | Test 18/11 (bot, không quyền admin): **Disconnect <tên Wi-Fi>** 17:13:30 → bot phát hiện 17:14:50, `netsh` kết nối lại, có Internet 17:14:53. **Tắt sóng Wi-Fi** 17:15:59 → bot bật lại sóng 17:16:54, `netsh` kết nối, có Internet 17:17:07. Bot nhắn *"📶 Bot có mạng lại"* chậm hơn ~1 phút sau khi có mạng (yêu cầu Telegram đang treo phải hết thời gian chờ) (mục 4) |
 
@@ -762,7 +782,7 @@ Danh sách đề xuất ngày 18/11/2026. Cập nhật trạng thái mỗi khi l
 |---|---|---|---|
 | 8 | Đọc số hạt khoai còn lại, báo khi sắp hết | ⬜ | Cần test với game thật |
 | 9 | Tự mua hạt khi sắp hết | ⬜ | Tiêu tiền trong game – cần cẩn thận |
-| 10 | Chọn loại cây trong cấu hình (thời gian chín riêng) | ⬜ | Cần ảnh mẫu hạt từng loại |
+| 10 | Gieo nhiều loại hạt, giờ chín riêng từng loại | ✅ | 19/11: `/chay <tk> <hạt>` / `-Seed`, 8 loại có mẫu; giờ chín đọc từ đồng hồ trên ô đất. Test thật (tài khoản 2) gieo bắp cải 10/10 ô, đọc đồng hồ 00:59:41 → hẹn đúng 10:43 (mục 4) |
 | 11 | Bắt sâu / tưới nước ruộng của mình | 🟡 | Trong `/xemruong` (19/11): nhận diện 💧/🐛 đúng 7/7 + 3/3 trên ảnh thật; bấm 1 biểu tượng là cả ruộng được tưới + bắt sâu (thử tay trên game thật). Mỗi vụ (gieo → thu hoạch) chỉ có **2 lần** cần tưới / bắt sâu. Chưa gặp lượt `/xemruong` thật lúc ruộng đang có biểu tượng. Lượt thu hoạch tự động chưa tưới |
 | 12 | Nhiều tài khoản: hàng đợi chạy lần lượt, `/chay tatca` | ⬜ | Hiện mỗi tài khoản đã có lịch riêng, trùng giờ thì chờ 10 phút |
 | 23 | Thao tác giống người: bấm bằng ghi thẳng sự kiện chạm + ngẫu nhiên hoá | ✅ | Lượt thật 18/11 16:27: đăng nhập, thu hoạch 10 ô, gieo 10/10 với cách bấm mới (mục 8) |
@@ -925,9 +945,9 @@ Nhật ký các lỗi xảy ra khi script chạy thật trên máy (không tính
 | 18/11 12:35 | `/xemruong` báo *"không xác định được"* | Cây lớn che mất biển gỗ cạnh ruộng | Đếm thanh thời gian trên cả màn hình, không cần biển gỗ | ✅ |
 | 18/11 16:17 | Lượt tự động dừng ngay: *"could not get driver version for /dev/input/mouse1"* | Lệnh dò thiết bị cảm ứng (`getevent`) in cảnh báo ra stderr; script chạy chế độ `Stop` nên PowerShell coi là lỗi | Đọc lệnh adb không qua stderr của PowerShell | ✅ |
 | 18/11 16:20 | *"Không thấy nút nông trại trong bảng Bạn bè"* | Popup *Báo danh mỗi ngày* hiện **sau** khi đã vào sảnh, che nút Bạn bè | Đóng popup trước khi bấm Bạn bè; test lại sau giờ reset 16:00 (popup cần bấm ✕ 2 lần) | ✅ |
-| 18/11 16:25 | *"Không mở được form đăng nhập 7Road"* | Game tự đăng nhập bằng phiên cũ (vừa đăng nhập vài phút trước), nhảy thẳng tới *Vào game* | Thấy nút *Vào game* thì đi tiếp | ✅ |
+| 18/11 16:25 | *"Không mở được form đăng nhập 7Road"* | Game tự đăng nhập bằng phiên cũ (vừa đăng nhập vài phút trước), nhảy thẳng tới *Vào game* | Thấy nút *Vào game* thì đi tiếp. **Sửa lại 19/11:** đi tiếp như vậy có thể vào nhầm tài khoản (phiên cũ không ghi tên) → nay bấm *Tài khoản* để đăng xuất, đăng nhập lại đúng `-Account` | ✅ |
 | 18/11 17:06 | Mất mạng, bot thử `netsh` nhưng không kết nối lại được; bot còn báo nhầm *"đã tự kết nối lại"* | Sóng Wi-Fi bị **tắt** (không phải ngắt kết nối) → `netsh` không làm gì được; bot ghi nhận khi chưa kiểm tra kết quả | Bật lại sóng Wi-Fi bằng Radio API; chỉ báo việc thật sự thành công; test lại 2 trường hợp tắt sóng / ngắt kết nối đều tự nối lại | ✅ |
-| **19/11 00:31** | Lượt 00:26 **đứng im giữa lúc thu hoạch** (đã thu 3/10 ô), không báo lỗi, không hẹn lịch mới; **thiết bị và game treo** tới khi bạn phát hiện lúc 04:18 và `/chay` lại | Lệnh chụp màn hình `adb exec-out screencap` treo vô hạn (thiết bị/game treo), script không có giới hạn thời gian → chờ mãi; nhiều khả năng Task Scheduler diệt lượt sau 45 phút → không chạy phần tắt máy + hẹn lịch | (1) **Mọi lệnh adb và MuMuManager có giới hạn thời gian** (chụp màn hình 15 giây) → quá giờ thì báo lỗi, bước được làm lại, cuối cùng khởi động lại thiết bị. (2) **Lịch dự phòng**: đầu mỗi lượt hẹn sẵn 1 lượt sau 50 phút (`$SafetyRunMin`), lượt bị diệt vẫn còn lượt sau | 🟡 |
+| **19/11 00:31** | Lượt 00:26 **đứng im giữa lúc thu hoạch** (đã thu 3/10 ô), không báo lỗi, không hẹn lịch mới; **thiết bị và game treo** tới khi bạn phát hiện lúc 04:18 và `/chay` lại | Lệnh chụp màn hình `adb exec-out screencap` treo vô hạn (thiết bị/game treo), script không có giới hạn thời gian → chờ mãi; nhiều khả năng Task Scheduler diệt lượt sau 45 phút → không chạy phần tắt máy + hẹn lịch | (1) **Mọi lệnh adb và MuMuManager có giới hạn thời gian** (chụp màn hình 15 giây) → quá giờ thì báo lỗi, bước được làm lại, cuối cùng khởi động lại thiết bị. (2) **Lịch dự phòng**: đầu mỗi lượt hẹn sẵn 1 lượt sau 50 phút (`$SafetyRunMin`), lượt bị diệt vẫn còn lượt sau. **Gặp lại 19/11 09:09** (RAM còn 1,1 GB): chụp màn hình treo 15 giây → tự kết nối lại adb, làm lại bước, khởi động lại thiết bị → xong lượt bình thường | ✅ |
 | 19/11 04:21 | Lượt `/chay` lỗi *"The process cannot access the file …ddtank_farm_screen.raw"* (2 lần làm lại không được, phải khởi động lại thiết bị) | Lệnh adb treo của lượt 00:26 vẫn còn sống, giữ file ảnh chụp chung | Mỗi lượt dùng file ảnh riêng; đầu lượt diệt lệnh chụp màn hình bị treo còn sót (> 3 phút) | 🟡 |
 | 19/11 04:24 | Lượt chạy thành công nhưng **không có tin Telegram** (*"message caption is too long"*) | 3 dòng báo làm lại chép nguyên câu lỗi dài → chú thích ảnh vượt 1024 ký tự | Rút gọn câu lỗi (≤ 140 ký tự); chú thích quá dài thì gửi phần còn lại thành tin nhắn riêng | 🟡 |
 | 19/11 08:28 | Lượt xem ruộng (test) báo *"akaka: có ô đã chín"* nhưng thật ra là **ruộng của tài khoản khác**; xong còn **tắt thiết bị đang có người dùng** | Thiết bị đang bật sẵn, game đang ở sảnh của tài khoản khác → script không kiểm tra đang đăng nhập tài khoản nào, vào thẳng nông trại; cuối lượt luôn tắt thiết bị | **Bạn chọn giữ nguyên** (19/11): lượt tự động vẫn chạy khi game đang mở. Tránh mở game trên thiết bị `auto` gần giờ thu hoạch (xem `/lich`) | 🧑 |

@@ -33,6 +33,7 @@ $ErrorActionPreference = "Stop"
 $Root    = $PSScriptRoot
 $LogDir  = Join-Path $Root "logs"
 . (Join-Path $Root "ket_noi_mang.ps1")   # Get-WifiInfo, Save-WifiProfile, Repair-Network
+. (Join-Path $Root "hat_giong.ps1")      # $SeedTypes, ConvertTo-SeedKey (lenh /chay <tk> <hat>)
 $Farm    = Join-Path $Root "ddtank_farm.ps1"
 $Lap     = Join-Path $Root "lap_lich.ps1"
 $Manager = Join-Path $MuMuDir "MuMuManager.exe"
@@ -276,7 +277,8 @@ function Get-Keyboard {
 
 $Help = @"
 🤖 Lệnh bot DDTank:
-/chay <tài khoản> – chạy ngay thu hoạch + trồng (vd: /chay akaka). Xong tự lập lịch lần sau lúc khoai chín
+/chay <tài khoản> [loại hạt] – chạy ngay thu hoạch + trồng (vd: /chay akaka, /chay akaka nho). Không ghi hạt = khoai. Xong tự lập lịch lần sau lúc cây chín
+   Loại hạt: $(Get-SeedListText)
 /xemruong <tài khoản> – vào game chụp ruộng, không thu hoạch / gieo, không đổi lịch (vd: /xemruong akaka)
 /trangthai – script có đang chạy không, thiết bị, lịch, log gần nhất
 /anh – chụp màn hình thiết bị auto
@@ -348,7 +350,14 @@ function Handle([string]$text) {
         '/maytinh' { Reply (Get-MachineInfo) }
 
         '/chay' {
-            if ($arg.Count -ne 1 -or $arg[0] -notmatch $ValidAcc) { Reply "Cách dùng: /chay <tài khoản>   vd: /chay akaka"; return }
+            if ($arg.Count -lt 1 -or $arg[0] -notmatch $ValidAcc) { Reply "Cách dùng: /chay <tài khoản> [loại hạt]   vd: /chay akaka  hoặc  /chay akaka nho`nLoại hạt: $(Get-SeedListText)"; return }
+            # loai hat co the nhieu chu ("thanh long", "cà tím") -> ghep lai roi chuan hoa ve key trong hat_giong.ps1
+            $seedKey = $null
+            if ($arg.Count -gt 1) {
+                $seedArg = ($arg | Select-Object -Skip 1) -join ' '
+                $seedKey = ConvertTo-SeedKey $seedArg
+                if (-not $seedKey) { Reply "❌ Không có loại hạt '$seedArg'.`nLoại hạt: $(Get-SeedListText)"; return }
+            }
             $run = @(Get-FarmProcs)
             if ($run.Count) { Reply "⏳ Script đang chạy rồi (PID $($run[0].ProcessId)), chờ xong rồi gửi lại. Xem /trangthai"; return }
             # /chay = bat lai tu lap lich (neu da /huylich) + xoa dem loi
@@ -359,10 +368,12 @@ function Handle([string]$text) {
             if (Test-Path $stFile) {
                 try { $st = Get-Content $stFile -Raw | ConvertFrom-Json; $st.retries = 0; $st | ConvertTo-Json | Set-Content $stFile -Encoding UTF8 } catch {}
             }
-            $p = Start-Process powershell.exe -WindowStyle Hidden -WorkingDirectory $Root -PassThru -ArgumentList @(
-                '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$Farm`"", '-Account', $arg[0], '-Manual')
-            BLog "Chay farm PID $($p.Id) tai khoan $($arg[0])"
-            Reply "▶️ Bắt đầu chạy cho tài khoản $($arg[0]) (PID $($p.Id)). Xong sẽ có ảnh gửi về.$extra Xem tiến độ: /trangthai"
+            $argv = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$Farm`"", '-Account', $arg[0], '-Manual')
+            if ($seedKey) { $argv += @('-Seed', $seedKey) }
+            $p = Start-Process powershell.exe -WindowStyle Hidden -WorkingDirectory $Root -PassThru -ArgumentList $argv
+            $seedTxt = if ($seedKey) { " – gieo $($SeedTypes[$seedKey].Icon) $($SeedTypes[$seedKey].Name)" } else { "" }
+            BLog "Chay farm PID $($p.Id) tai khoan $($arg[0]) hat $seedKey"
+            Reply "▶️ Bắt đầu chạy cho tài khoản $($arg[0])$seedTxt (PID $($p.Id)). Xong sẽ có ảnh gửi về.$extra Xem tiến độ: /trangthai"
         }
 
         '/trangthai' {
@@ -488,7 +499,7 @@ BLog "===== BOT BAT DAU (PID $PID) ====="
 # Menu lenh hien khi go "/" trong Telegram
 try {
     $cmds = @(
-        @{ command = "chay";      description = "Chạy ngay: /chay <tài khoản>" },
+        @{ command = "chay";      description = "Chạy ngay: /chay <tài khoản> [loại hạt]" },
         @{ command = "xemruong";  description = "Chụp ruộng, không thu hoạch: /xemruong <tài khoản>" },
         @{ command = "trangthai"; description = "Trạng thái script, thiết bị, log" },
         @{ command = "anh";       description = "Chụp màn hình thiết bị auto" },
