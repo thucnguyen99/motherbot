@@ -176,7 +176,16 @@ function Log($msg) {
 
 # ---------------------------- MuMu / ADB -----------------------------
 function Get-MuMuInfo {
-    $json = Invoke-MuMu "info -v all" 30
+    # 19/11 10:50 + 10:56: vua bat thiet bi (may thieu RAM) MuMuManager ban, "info" qua 30 giay -> hong ca luot.
+    # -> hoi lai toi da 3 lan truoc khi bao loi
+    for ($k = 1; ; $k++) {
+        try { $json = Invoke-MuMu "info -v all" 30; break }
+        catch {
+            if ($k -ge 3) { throw }
+            Log "MuMuManager chua tra loi (lan $k/3): $($_.Exception.Message) -> hoi lai"
+            Start-Sleep 5
+        }
+    }
     $all = $json | ConvertFrom-Json
     foreach ($p in $all.PSObject.Properties) {
         if ($p.Value.name -eq $DeviceName) { return $p.Value }
@@ -415,10 +424,33 @@ function Reset-Adb {
 
 function Snap {
     # RAW (khong -p): may ao khong phai nen PNG -> ~0.7s thay vi ~1.3s moi lan chup. Toi da 15 giay.
-    try { Invoke-AdbTimed "-s $($script:Serial) exec-out screencap" 15 $Shot }
-    catch { Log "Chup man hinh: $($_.Exception.Message) -> ket noi lai adb"; Reset-Adb; throw "Chụp màn hình bị treo (adb không trả lời 15 giây)" }
-    [Vision]::Reset()
-    return $Shot
+    # 19/11 10:48: may con 1,1 GB RAM -> anh tra ve bi cat cut ("Anh RAW khong hop le") -> hong ca buoc.
+    # Kiem tra du kich thuoc (header w,h + w*h*4 byte), thieu thi chup lai ngay (toi da 3 lan).
+    for ($k = 1; $k -le 3; $k++) {
+        try { Invoke-AdbTimed "-s $($script:Serial) exec-out screencap" 15 $Shot }
+        catch { Log "Chup man hinh: $($_.Exception.Message) -> ket noi lai adb"; Reset-Adb; throw "Chụp màn hình bị treo (adb không trả lời 15 giây)" }
+        $why = Test-RawShot $Shot
+        if (-not $why) { [Vision]::Reset(); return $Shot }
+        Log "Anh chup loi ($why) -> chup lai (lan $k/3)"
+        Start-Sleep -Milliseconds 500
+    }
+    Reset-Adb
+    throw "Ảnh chụp màn hình bị lỗi 3 lần liên tiếp ($why)"
+}
+
+# Anh RAW cua screencap hop le -> $null; loi -> mo ta ngan
+function Test-RawShot($path) {
+    try {
+        $len = (Get-Item $path -ErrorAction Stop).Length
+        if ($len -lt 16) { return "rỗng ($len byte)" }
+        $fs = [IO.File]::OpenRead($path)
+        try { $h = New-Object byte[] 8; [void]$fs.Read($h, 0, 8) } finally { $fs.Close() }
+        $w = [BitConverter]::ToInt32($h, 0); $ht = [BitConverter]::ToInt32($h, 4)
+        if ($w -le 0 -or $ht -le 0 -or $w -gt 10000 -or $ht -gt 10000) { return "header sai ${w}x$ht" }
+        $need = [long]$w * $ht * 4 + 12
+        if ($len -lt $need) { return "cụt $len/$need byte" }
+        return $null
+    } catch { return "không đọc được: $($_.Exception.Message)" }
 }
 
 function Save-Shot($name) {
@@ -617,7 +649,16 @@ function Send-PendingTelegram {
 
 function Send-Telegram($photos, $summary, [double]$netWaitMin = 2) {
     $photos = @($photos | Where-Object { $_.Path -and (Test-Path $_.Path) })
-    if (-not $photos.Count) { return }
+    if (-not $photos.Count) {
+        # 19/11 10:56: loi truoc khi chup duoc anh (vd luc bat thiet bi) -> truoc day khong gui gi, ban khong biet luot da hong.
+        # Co loi (tru mat mang - da co co che bao rieng) -> gui tin chu.
+        if (-not $script:ErrText -or $script:Outcome -eq 'offline') { return }
+        $text = "🚜 DDTank [$Account] $(Get-Date -Format 'dd/MM HH:mm')`n❌ LỖI: $(Short-Err $script:ErrText)"
+        if ($summary) { $text += "`n`n$summary" }
+        Log ("Telegram <- (tin chu)`n    " + ($text -replace "`n", "`n    "))
+        if (-not (Post-Telegram @() $text $netWaitMin)) { Save-PendingTelegram @() $text }
+        return
+    }
     $text = "🚜 DDTank [$Account] $(Get-Date -Format 'dd/MM HH:mm')`n" + (($photos | ForEach-Object { $_.Caption }) -join "`n")
     if ($summary) { $text += "`n`n$summary" }
     $paths = @($photos | ForEach-Object { $_.Path })
