@@ -989,3 +989,17 @@ Phần riêng nằm trong thư mục `tham_hiem\`. Ghi chú kỹ thuật, toạ 
 ### Trạng thái (19/11)
 - Đã khám phá và nhận tay 3 tổ đội lúc 22:50; các đội xong khoảng 10:50 ngày 20/11.
 - Script đã viết, **chưa chạy thử trọn một lượt**. Đồng hồ trên tab còn thiếu mẫu chữ số 6; nếu đọc không chắc, bot dùng giờ xuất phát + 12 tiếng.
+
+---
+
+## 15. Thánh vật: nhận rương "Đạt được" trong mỗi lượt nông trại
+
+Mỗi lượt nông trại, vào sảnh xong bot làm thêm một bước trước khi thu hoạch:
+1. Sảnh → **Dạy dỗ** → **Thánh vật** → **Đạt được** → bấm **rương** → **Nhận** (thưởng treo máy, tích tối đa 9 giờ).
+2. Về sảnh, rồi thu hoạch và gieo như cũ.
+
+- Rương chưa có thưởng (nút Nhận xám) thì bot đóng popup, không nhận.
+- Telegram có ảnh "🎁 Thánh vật" kèm một dòng tóm tắt.
+- **Lỗi ở bước này không làm hỏng lượt nông trại:** bot ghi "⚠️ Thánh vật lỗi…" rồi vẫn thu hoạch bình thường.
+- Tắt: đặt `$ThanhVat = $false` ở phần CẤU HÌNH trong `ddtank_farm.ps1`.
+- Chi tiết kỹ thuật, toạ độ và ngưỡng: `thanh_vat\GHI_CHU.md`. **Chưa chạy thử trong một lượt nông trại thật.**

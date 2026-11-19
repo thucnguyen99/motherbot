@@ -152,6 +152,10 @@ $ReadTimers   = $true
 $TimerMaxDist = 9.0     # 19/11: chu so dung lech 0-7.4 (nen duong da lech hon), chu so chua tung co mau lech >= 6.7
                         # -> nguong rong + Get-TimerRipe chi tin dong ho co it nhat 1 dong ho khac khop (+-90 giay)
 
+# Thanh vat: moi luot nong trai, vao sanh xong thi nhan ruong "Dat duoc" (thuong treo may, tich toi da 9 gio)
+# roi moi vao nong trai (thanh_vat\cong_cu\thanh_vat.ps1). Loi buoc nay KHONG lam hong luot nong trai: ghi chu Telegram, bo qua.
+$ThanhVat = $true
+
 # Toa do 10 o dat tinh tu tam bien go canh ruong (farm_sign).
 # Thu tu keo hat: hang truoc phai -> trai, roi hang sau trai -> phai.
 $PlotOffsets = @(
@@ -188,6 +192,7 @@ $StateKey = if ($IsTH) { "$Account.tham_hiem" } else { $Account }
 $TaskFull = if ($IsTH) { "DDTank Farm - $Account - tham hiem" } else { "DDTank Farm - $Account" }
 $TgHead   = if ($IsTH) { "🐎 Thám hiểm [$Account]" } else { "🚜 DDTank [$Account]" }
 if ($IsTH) { . (Join-Path $Root "tham_hiem\cong_cu\tham_hiem.ps1") }
+elseif ($ThanhVat) { . (Join-Path $Root "thanh_vat\cong_cu\thanh_vat.ps1") }   # nong trai: nhan ruong Thanh vat truoc
 
 function Log($msg) {
     $line = "[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $msg
@@ -511,6 +516,7 @@ function Build-Summary($sowTime, $nextLine) {
     if (-not $IsTH -and -not $ViewOnly -and $Account -and $script:SeedKey -and $script:SeedKey -ne $DefaultSeed) {
         $lines += "🌱 Hạt cố định của $($Account): $(Seed-Text $script:SeedKey) (về khoai: /chay $Account khoai)"
     }
+    if ($script:ThanhVatNote) { $lines += $script:ThanhVatNote }
     if ($script:QueuedMin) { $lines += "⏳ Trùng lượt đang chạy → đã xếp hàng chờ $($script:QueuedMin) phút" }
     if ($script:UpdateStart) {
         $ue = if ($script:UpdateEnd) { $script:UpdateEnd } else { Get-Date }
@@ -1618,6 +1624,7 @@ function Add-History {
             kq   = $(if ($ViewOnly -and $script:Outcome -ne 'error') { 'view' } else { [string]$script:Outcome })
             nhan = $(if ($IsTH) { [int]$script:ThClaimed } else { 0 })    # tham hiem: so to doi nhan thuong / cho xuat phat
             di   = $(if ($IsTH) { [int]$script:ThStarted } else { 0 })
+            tv   = [bool]$script:ThanhVatGot     # nong trai: da nhan ruong Thanh vat
             thu  = [int]$harvested
             gieo = [bool]$script:SowTime
             hat  = (@($script:SownSeeds | Select-Object -Unique) -join '+')
@@ -1752,6 +1759,22 @@ try {
         $script:Outcome = 'tham_hiem'
         Log "===== HOAN THANH (tham hiem) ====="
         return
+    }
+    # Thanh vat: nhan ruong "Dat duoc" roi ve sanh (1 lan moi luot, ke ca khi ca luot chay lai).
+    # Het lan thu -> bo qua (ghi chu Telegram), dua game ve sanh (mo lai app neu can) roi van thu hoach binh thuong.
+    if ($ThanhVat -and -not $SkipLaunch -and -not $ViewOnly -and -not $script:ThanhVatDone) {
+        $script:ThanhVatDone = $true
+        try { Retry-Step 'thanh_vat' 'Thánh vật' { Invoke-ThanhVat } { Close-Popups; try { TvBackToLobby } catch {} } }
+        catch {
+            Log "Thanh vat loi, bo qua: $($_.Exception.Message)"
+            $script:ThanhVatNote = "⚠️ Thánh vật lỗi, bỏ qua lượt này: $(Short-Err $_.Exception.Message)"
+            try { TvBackToLobby }
+            catch {
+                Log "Khong ve duoc sanh sau loi Thanh vat -> mo lai game"
+                [void](Invoke-MuMu "control -v $($script:Index) app close -pkg $Package" 30); Nap 3
+                Retry-Step 'vao_game' 'vào game' { Enter-Game } { [void](Invoke-MuMu "control -v $($script:Index) app close -pkg $Package" 30); Nap 3 }
+            }
+        }
     }
     if (-not $SkipLaunch) { Retry-Step 'mo_nong_trai' 'mở nông trại' { Open-Farm } }
     if ($ViewOnly) {

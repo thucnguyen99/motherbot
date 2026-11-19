@@ -7,11 +7,12 @@ state/
 backup/
 debug/
 
-# --- Cau ca / Tham hiem: anh moi lan chay + ban ghi lam mau (nang, co hinh tai khoan) ---
+# --- Cau ca / Tham hiem / Thanh vat: anh moi lan chay + ban ghi lam mau (nang, co hinh tai khoan) ---
 cau_ca/ket_qua/
 cau_ca/ghi_hinh/
 tham_hiem/ket_qua/
 tham_hiem/ghi_hinh/
+thanh_vat/ghi_hinh/
 
 # --- File tam ---
 *.raw
