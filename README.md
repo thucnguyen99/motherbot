@@ -957,3 +957,35 @@ Nhật ký các lỗi xảy ra khi script chạy thật trên máy (không tính
 | 19/11 14:01 (test giờ bảo trì) | Mở game lúc máy chủ bảo trì: game hiện popup *"Máy chủ đang được bảo trì…"*; script cũ không nhận ra → sẽ chờ 3 phút × 3 lần rồi báo *"Không vào được sảnh chính"*, tính là lỗi (ngoài khung giờ cố định). Cùng lúc RAM còn ~1 GB, chụp màn hình treo 15 giây 1 lần | Script chỉ biết khung giờ bảo trì cố định, chưa có ảnh mẫu màn hình bảo trì | Thêm ảnh mẫu `popup_baotri.png`; `Enter-Game` thấy popup thì dừng lượt, kết quả `maintenance`, hẹn lại 30 phút, Telegram kèm ảnh. Test lại 14:10–14:11 trên game đang bảo trì: nhận ra sau 2 giây | ✅ |
 | 19/11 15:02 (test sau bảo trì) | Hết bảo trì, game **tải bản cập nhật 90 MB** (*"vui lòng không thoát game"*); script không nhận ra → chờ 3 phút không thấy sảnh, coi là lỗi, **tắt app mở lại** 2 lần (15:06, 15:09) làm đứt quá trình tải. Mạng tải chậm (~1–5 MB/phút) | Script không biết màn hình cập nhật; bước *vào game* chỉ chờ 3 phút | Ảnh mẫu `update_screen.png`; `Enter-Game` thấy màn hình cập nhật thì chờ, gia hạn, không tắt app (tối đa 20 phút), Telegram ghi số phút. Cập nhật xong game tự thoát ra màn hình chính → mở lại app ngay. Đồng thời `/chay` trong khung giờ bảo trì nay vẫn vào game (bảo trì có thể xong sớm). **Test lại 15:14–15:26:** nhận ra màn hình cập nhật, chờ không tắt app; sau đó `/chay` thu hoạch + gieo bắp cải 10/10 bình thường | ✅ |
 | 19/11 15:24 | Telegram báo *"Sau khi thu hoạch: 7 ô"* nhưng thật ra đã thu đủ 10 ô | Chụp màn hình treo giữa lúc thu hoạch (RAM còn 1,1 GB) → bước *thu hoạch* làm lại từ đầu, số ô đã thu ở lần trước (3 ô) không được cộng vào | Chưa sửa (bạn chọn để sau): cộng dồn số ô đã thu qua các lần làm lại bước | ❌ |
+---
+
+## 14. Thú cưỡi thám hiểm (tự lập lịch như nông trại)
+
+Thám hiểm chạy bằng chính `ddtank_farm.ps1` với tuỳ chọn `-Job tham_hiem`, nên dùng chung mọi phần của nông trại:
+- bật máy ảo, đăng nhập đúng tài khoản đã lưu;
+- khoá thiết bị: trùng lượt nông trại thì xếp hàng chờ;
+- né giờ bảo trì, mất mạng, `/tamdung`;
+- gửi Telegram (có gửi bù khi mất mạng) và ghi lịch sử cho `/thongke`.
+
+Phần riêng nằm trong thư mục `tham_hiem\`. Ghi chú kỹ thuật, toạ độ và ngưỡng xem `tham_hiem\GHI_CHU.md`.
+
+### Bot làm gì mỗi lượt
+1. Sảnh → **Dạy dỗ** → **Thú cưỡi** → **Thú cưỡi Thám hiểm**.
+2. Lần lượt 3 tab **Tổ đội 1/2/3**:
+   - **Kết thúc** → bấm **Nhận** → chụp ảnh quà (popup "Có thưởng") → đóng popup → bấm **Xuất phát**.
+   - **Chưa có** → bấm **Xuất phát**. Game tự giữ khu thám hiểm và thú cưỡi cũ của đội.
+   - **Đang thám hiểm** → không bấm gì.
+3. Đọc giờ còn lại trên 3 tab rồi về sảnh. Telegram nhận ảnh quà của từng đội, ảnh 3 tổ đội và giờ xong của từng đội.
+4. **Tự lập lịch** lần sau lúc tổ đội xong sớm nhất + 3 phút. Lịch tên `DDTank Farm - <tk> - tham hiem`, riêng với lịch nông trại.
+
+⚠️ Nút **Nhận / Xuất phát / Gọi về nằm cùng một chỗ**. Bot so cả 3 nút ngay trước mỗi lần bấm và **không bao giờ bấm Gọi về**, vì Gọi về làm mất hết chiến lợi phẩm. Nếu thấy hộp xác nhận Gọi về, bot bấm **Hủy bỏ**.
+
+### Chạy
+- Telegram: `/thamhiem akata99`. Xong lượt đầu, bot tự hẹn các lượt sau.
+- Tay: `powershell -NoProfile -ExecutionPolicy Bypass -File ddtank_farm.ps1 -Account akata99 -Job tham_hiem -Manual`
+- `/lich`, `/trangthai` hiện lịch thám hiểm với dấu 🐎. `/thongke` có dòng thám hiểm riêng.
+- Tắt tự lập lịch thám hiểm: xoá task `DDTank Farm - akata99 - tham hiem`, hoặc tạo file `state\akata99.tham_hiem.off`.
+
+### Trạng thái (19/11)
+- Đã khám phá và nhận tay 3 tổ đội lúc 22:50; các đội xong khoảng 10:50 ngày 20/11.
+- Script đã viết, **chưa chạy thử trọn một lượt**. Đồng hồ trên tab còn thiếu mẫu chữ số 6; nếu đọc không chắc, bot dùng giờ xuất phát + 12 tiếng.

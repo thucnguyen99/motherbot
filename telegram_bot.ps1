@@ -19,7 +19,11 @@ param(
 )
 
 # --------------------------- CAU HINH --------------------------------
-$MuMuDir    = "D:\Program Files\Netease\MuMuPlayer\nx_main"   # giong ddtank_farm.ps1
+# giong ddtank_farm.ps1: MuMu o D: hay C: tuy may -> tim tren moi o dia, uu tien D:
+$MuMuDir    = @('D:\', 'C:\') + @(Get-PSDrive -PSProvider FileSystem | ForEach-Object { $_.Root }) |
+    ForEach-Object { [IO.Path]::Combine($_, "Program Files\Netease\MuMuPlayer\nx_main") } |   # khong dung Join-Path: may khong co o D: -> loi
+    Where-Object { Test-Path ([IO.Path]::Combine($_, "MuMuManager.exe")) } | Select-Object -First 1
+if (-not $MuMuDir) { $MuMuDir = "D:\Program Files\Netease\MuMuPlayer\nx_main" }
 $DeviceName = "auto"
 $Package    = "com.wan.ddten"
 $TaskName   = "DDTank Farm"      # ten lich chay (lap_lich.ps1)
@@ -140,6 +144,7 @@ function Get-ScheduleLines {
             $kind = "lịch cố định"
             try { $iv = [Xml.XmlConvert]::ToTimeSpan($t.Triggers[0].Repetition.Interval); $kind += ", mỗi {0}:{1:D2}" -f [int][Math]::Floor($iv.TotalHours), $iv.Minutes } catch {}
         } else { $kind = "tự lập lịch" }
+        if ($t.Actions[0].Arguments -match '-Job\s+tham_hiem') { $out += "🐎 ${acc}: $next (thám hiểm, tự lập lịch)"; continue }
         $k = Get-AccountSeed $StateDir $acc
         $seedTxt = if ($k) { ", gieo $($SeedTypes[$k].Icon) $($SeedTypes[$k].Name)" } else { "" }
         $out += "⏰ ${acc}: $next ($kind$seedTxt)"
@@ -242,7 +247,14 @@ function Get-Stats([int]$days) {
     if (-not $rows.Count) { return "Không có lượt chạy nào trong $days ngày qua." }
     $L = @("📊 Thống kê $days ngày ($($from.ToString('dd/MM')) – $(Get-Date -Format 'dd/MM')):")
     foreach ($g in ($rows | Group-Object acc | Sort-Object Name)) {
-        $r = @($g.Group)
+        # Thu cuoi tham hiem (job = tham_hiem) thong ke rieng, khong tinh vao nong trai
+        $th = @($g.Group | Where-Object { $_.job -eq 'tham_hiem' })
+        $r = @($g.Group | Where-Object { $_.job -ne 'tham_hiem' })
+        if ($th.Count) {
+            $L += ""
+            $L += "🐎 $($g.Name) – thám hiểm: $($th.Count) lượt, nhận thưởng $(($th | Measure-Object nhan -Sum).Sum) tổ đội, cho đi $(($th | Measure-Object di -Sum).Sum) tổ đội | ❌ Lỗi: $(@($th | Where-Object kq -eq 'error').Count)"
+        }
+        if (-not $r.Count) { continue }
         $c = { param($k) @($r | Where-Object kq -eq $k).Count }
         $sown = @($r | Where-Object { $_.gieo }).Count
         $plots = ($r | Measure-Object thu -Sum).Sum
@@ -282,6 +294,7 @@ $Help = @"
 /chay <tài khoản> [loại hạt] – chạy ngay thu hoạch + trồng (vd: /chay akaka, /chay akaka nho). Ghi hạt = lưu cố định cho tài khoản, các lượt tự động sau cũng gieo loại đó (về khoai: /chay akaka khoai). Xong tự lập lịch lần sau lúc cây chín
    Loại hạt: $(Get-SeedListText)
 /xemruong <tài khoản> – vào game chụp ruộng, không thu hoạch / gieo, không đổi lịch (vd: /xemruong akaka)
+/thamhiem <tài khoản> – chạy ngay Thú cưỡi thám hiểm: nhận thưởng tổ đội đã xong + cho đi tiếp (vd: /thamhiem akata99). Xong tự lập lịch lần sau lúc tổ đội xong
 /trangthai – script có đang chạy không, thiết bị, lịch, log gần nhất
 /anh – chụp màn hình thiết bị auto
 /log – log lần chạy gần nhất
@@ -384,6 +397,27 @@ function Handle([string]$text) {
                        else { $k = Get-AccountSeed $StateDir $arg[0]; if ($k) { " – gieo $($SeedTypes[$k].Icon) $($SeedTypes[$k].Name) (hạt cố định của tài khoản)" } else { "" } }
             BLog "Chay farm PID $($p.Id) tai khoan $($arg[0]) hat $seedKey"
             Reply "▶️ Bắt đầu chạy cho tài khoản $($arg[0])$seedTxt (PID $($p.Id)). Xong sẽ có ảnh gửi về.$extra Xem tiến độ: /trangthai$queueTxt"
+        }
+
+        '/thamhiem' {
+            # Thu cuoi tham hiem: ddtank_farm.ps1 -Job tham_hiem (nhan thuong 3 to doi + cho di tiep, tu hen lan sau luc to doi xong)
+            if ($arg.Count -lt 1 -or $arg[0] -notmatch $ValidAcc) { Reply "Cách dùng: /thamhiem <tài khoản>   vd: /thamhiem akata99"; return }
+            $run = @(Get-FarmProcs)
+            $mine = @($run | Where-Object { $_.CommandLine -match ('-Account\s+"?' + [regex]::Escape($arg[0]) + '"?(\s|$)') -and $_.CommandLine -match '-Job\s+"?tham_hiem' })
+            if ($mine.Count) { Reply "⏳ Thám hiểm của $($arg[0]) đang chạy rồi (PID $($mine[0].ProcessId)). Xem /trangthai"; return }
+            $queueTxt = if ($run.Count) { "`n⏳ Đang có lượt khác chạy → lượt này xếp hàng, chạy ngay khi lượt kia xong (chờ tối đa 15 phút)." } else { "" }
+            $extra = ""
+            $key = "$($arg[0]).tham_hiem"
+            $offFile = Join-Path $StateDir "$key.off"
+            if (Test-Path $offFile) { Remove-Item $offFile -Force; $extra = " Đã bật lại tự lập lịch thám hiểm." }
+            $stFile = Join-Path $StateDir "$key.json"
+            if (Test-Path $stFile) {
+                try { $st = Get-Content $stFile -Raw | ConvertFrom-Json; $st.retries = 0; $st | ConvertTo-Json | Set-Content $stFile -Encoding UTF8 } catch {}
+            }
+            $argv = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$Farm`"", '-Account', $arg[0], '-Job', 'tham_hiem', '-Manual')
+            $p = Start-Process powershell.exe -WindowStyle Hidden -WorkingDirectory $Root -PassThru -ArgumentList $argv
+            BLog "Chay tham hiem PID $($p.Id) tai khoan $($arg[0])"
+            Reply "🐎 Bắt đầu thám hiểm cho tài khoản $($arg[0]) (PID $($p.Id)): nhận thưởng tổ đội đã xong + cho đi tiếp, tự hẹn lần sau lúc tổ đội xong.$extra Xem tiến độ: /trangthai$queueTxt"
         }
 
         '/trangthai' {
@@ -511,6 +545,7 @@ try {
     $cmds = @(
         @{ command = "chay";      description = "Chạy ngay: /chay <tài khoản> [loại hạt]" },
         @{ command = "xemruong";  description = "Chụp ruộng, không thu hoạch: /xemruong <tài khoản>" },
+        @{ command = "thamhiem";  description = "Thú cưỡi thám hiểm ngay: /thamhiem <tài khoản>" },
         @{ command = "trangthai"; description = "Trạng thái script, thiết bị, log" },
         @{ command = "anh";       description = "Chụp màn hình thiết bị auto" },
         @{ command = "log";       description = "Log lần chạy gần nhất" },

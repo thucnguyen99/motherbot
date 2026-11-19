@@ -16,9 +16,13 @@
 #            -ViewOnly     (chi chup anh ruong gui Telegram - lenh /xemruong)
 #  Telegram: dien bot_token + chat_id vao telegram.json (xem README.md)
 #  Tu lap lich: chay xong tu hen lan sau luc cay chin ($AutoSchedule, xem phan CAU HINH)
+#  -Job tham_hiem: thay vi nong trai -> Thu cuoi tham hiem (nhan thuong 3 to doi + cho di tiep, hen lan sau luc
+#                  to doi xong som nhat). Phan rieng: tham_hiem\cong_cu\tham_hiem.ps1; lich "DDTank Farm - <tk> - tham hiem"
 # =====================================================================
 param(
     [string]$Account,      # tai khoan 7Road
+    [ValidateSet('nong_trai', 'tham_hiem')]
+    [string]$Job = 'nong_trai',   # viec cua luot chay: nong trai (mac dinh) | thu cuoi tham hiem
     [string]$Seed,         # loai hat cho lan nay (khoai, le, nho, tao, thanhlong, ngo, bapcai, catim - xem hat_giong.ps1)
     [switch]$KeepDevice,
     [switch]$SkipLaunch,
@@ -51,7 +55,11 @@ param(
 # ---------------------------------------------------------------------
 
 # ----------------------------- CAU HINH ------------------------------
-$MuMuDir    = "D:\Program Files\Netease\MuMuPlayer\nx_main"
+# MuMu cai o D: hay C: tuy may (may DELL: C:) -> tim tren moi o dia, uu tien D:
+$MuMuDir    = @('D:\', 'C:\') + @(Get-PSDrive -PSProvider FileSystem | ForEach-Object { $_.Root }) |
+    ForEach-Object { [IO.Path]::Combine($_, "Program Files\Netease\MuMuPlayer\nx_main") } |   # khong dung Join-Path: may khong co o D: -> loi
+    Where-Object { Test-Path ([IO.Path]::Combine($_, "MuMuManager.exe")) } | Select-Object -First 1
+if (-not $MuMuDir) { $MuMuDir = "D:\Program Files\Netease\MuMuPlayer\nx_main" }
 $DeviceName = "auto"
 $Package    = "com.wan.ddten"     # app "DDTank"
 $PlotCount  = 10
@@ -172,6 +180,14 @@ $cp = New-Object System.CodeDom.Compiler.CompilerParameters
 $cp.CompilerOptions = "/optimize+"
 [void]$cp.ReferencedAssemblies.Add("System.Drawing.dll")
 Add-Type -TypeDefinition (Get-Content (Join-Path $Root "Vision.cs") -Raw) -CompilerParameters $cp
+
+# Viec cua luot chay (-Job). Moi viec co trang thai / lich / tieu de Telegram rieng de khong de len nhau:
+#   state\<khoa>.json / .off / .offline, task "DDTank Farm - <tk>[ - tham hiem]"
+$IsTH     = ($Job -eq 'tham_hiem')
+$StateKey = if ($IsTH) { "$Account.tham_hiem" } else { $Account }
+$TaskFull = if ($IsTH) { "DDTank Farm - $Account - tham hiem" } else { "DDTank Farm - $Account" }
+$TgHead   = if ($IsTH) { "🐎 Thám hiểm [$Account]" } else { "🚜 DDTank [$Account]" }
+if ($IsTH) { . (Join-Path $Root "tham_hiem\cong_cu\tham_hiem.ps1") }
 
 function Log($msg) {
     $line = "[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $msg
@@ -476,7 +492,10 @@ function Add-Photo($caption) {
 # $nextLine: ket qua tu lap lich (Plan-NextRun); khong co thi lay lich co dinh "DDTank Farm"
 function Build-Summary($sowTime, $nextLine) {
     $lines = @("✅ Xong việc lúc: $(Get-Date -Format 'HH:mm dd/MM/yyyy')")
-    if ($sowTime) {
+    if ($IsTH) {
+        # Thu cuoi tham hiem: tung to doi (nhan thuong / xuat phat / dang chay, gio xong)
+        if ($script:ThLines.Count) { $lines += $script:ThLines }
+    } elseif ($sowTime) {
         $r = if ($script:SowRipe) { $script:SowRipe } else { $sowTime.AddHours($GrowHours) }
         $lines += "🌾 Thu hoạch tiếp theo (cây chín): $($r.ToString('HH:mm dd/MM/yyyy'))"
     } elseif ($script:GrowRipe) {
@@ -489,7 +508,7 @@ function Build-Summary($sowTime, $nextLine) {
         $lines += "🌾 Thu hoạch tiếp theo: chưa xác định (lần này không gieo)"
     }
     foreach ($w in @($script:SeedNotes | Select-Object -Unique)) { if ($w) { $lines += $w } }
-    if (-not $ViewOnly -and $Account -and $script:SeedKey -and $script:SeedKey -ne $DefaultSeed) {
+    if (-not $IsTH -and -not $ViewOnly -and $Account -and $script:SeedKey -and $script:SeedKey -ne $DefaultSeed) {
         $lines += "🌱 Hạt cố định của $($Account): $(Seed-Text $script:SeedKey) (về khoai: /chay $Account khoai)"
     }
     if ($script:QueuedMin) { $lines += "⏳ Trùng lượt đang chạy → đã xếp hàng chờ $($script:QueuedMin) phút" }
@@ -663,13 +682,13 @@ function Send-Telegram($photos, $summary, [double]$netWaitMin = 2) {
         # 19/11 10:56: loi truoc khi chup duoc anh (vd luc bat thiet bi) -> truoc day khong gui gi, ban khong biet luot da hong.
         # Co loi (tru mat mang - da co co che bao rieng) -> gui tin chu.
         if (-not $script:ErrText -or $script:Outcome -eq 'offline') { return }
-        $text = "🚜 DDTank [$Account] $(Get-Date -Format 'dd/MM HH:mm')`n❌ LỖI: $(Short-Err $script:ErrText)"
+        $text = "$TgHead $(Get-Date -Format 'dd/MM HH:mm')`n❌ LỖI: $(Short-Err $script:ErrText)"
         if ($summary) { $text += "`n`n$summary" }
         Log ("Telegram <- (tin chu)`n    " + ($text -replace "`n", "`n    "))
         if (-not (Post-Telegram @() $text $netWaitMin)) { Save-PendingTelegram @() $text }
         return
     }
-    $text = "🚜 DDTank [$Account] $(Get-Date -Format 'dd/MM HH:mm')`n" + (($photos | ForEach-Object { $_.Caption }) -join "`n")
+    $text = "$TgHead $(Get-Date -Format 'dd/MM HH:mm')`n" + (($photos | ForEach-Object { $_.Caption }) -join "`n")
     if ($summary) { $text += "`n`n$summary" }
     $paths = @($photos | ForEach-Object { $_.Path })
     Log ("Telegram <- {0}`n    {1}" -f (($paths | ForEach-Object { Split-Path $_ -Leaf }) -join ", "), ($text -replace "`n", "`n    "))
@@ -1310,7 +1329,7 @@ $script:SownSeeds = @()      # cac loai hat da gieo lan nay
 $script:SeedNotes = @()      # dong ghi chu ve hat tren Telegram
 
 function Get-FarmState {
-    $f = Join-Path $StateDir "$Account.json"
+    $f = Join-Path $StateDir "$StateKey.json"
     if (Test-Path $f) { try { return (Get-Content $f -Raw | ConvertFrom-Json) } catch {} }
     return $null
 }
@@ -1318,23 +1337,23 @@ function Get-FarmState {
 function Save-FarmState($ripe, [int]$retries) {
     New-Item -ItemType Directory -Force $StateDir | Out-Null
     $o = [ordered]@{ ripe = $(if ($ripe) { $ripe.ToString('yyyy-MM-dd HH:mm:ss') } else { $null }); retries = $retries }
-    $o | ConvertTo-Json | Set-Content -Path (Join-Path $StateDir "$Account.json") -Encoding UTF8
+    $o | ConvertTo-Json | Set-Content -Path (Join-Path $StateDir "$StateKey.json") -Encoding UTF8
 }
 
 # Task "DDTank Farm - <tai khoan>" chay 1 lan luc $at (ghi de neu da co)
 function Register-NextRun([datetime]$at) {
     $action = New-ScheduledTaskAction -Execute "powershell.exe" `
-        -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$(Join-Path $Root 'ddtank_farm.ps1')`" -Account $Account" `
+        -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$(Join-Path $Root 'ddtank_farm.ps1')`" -Account $Account$(if ($IsTH) { ' -Job tham_hiem' })" `
         -WorkingDirectory $Root
     $trigger = New-ScheduledTaskTrigger -Once -At $at
     $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
         -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 45)
     # giu quyen dang co (ban co the nang task len Highest de khoi dong lai card Wi-Fi, xem README) - khong ha xuong Limited
     $rl = 'Limited'
-    try { $old = Get-ScheduledTask -TaskName "DDTank Farm - $Account" -ErrorAction Stop; if ("$($old.Principal.RunLevel)" -eq 'Highest') { $rl = 'Highest' } } catch {}
+    try { $old = Get-ScheduledTask -TaskName $TaskFull -ErrorAction Stop; if ("$($old.Principal.RunLevel)" -eq 'Highest') { $rl = 'Highest' } } catch {}
     $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel $rl
-    Register-ScheduledTask -TaskName "DDTank Farm - $Account" -Action $action -Trigger $trigger -Settings $settings `
-        -Principal $principal -Description "Tu lap lich: thu hoach + gieo hat cho $Account" -Force | Out-Null
+    Register-ScheduledTask -TaskName $TaskFull -Action $action -Trigger $trigger -Settings $settings `
+        -Principal $principal -Description "Tu lap lich: $(if ($IsTH) { 'thu cuoi tham hiem' } else { 'thu hoach + gieo hat' }) cho $Account" -Force | Out-Null
 }
 
 # Thoi diem $t (gio may) co roi vao gio bao tri game khong.
@@ -1358,7 +1377,7 @@ function Maint-Text {
 
 # Mat mang: state\<tai khoan>.offline = "gio bat dau mat mang|so lan thu" (xoa khi co mang lai)
 function Mark-Offline {
-    $f = Join-Path $StateDir "$Account.offline"
+    $f = Join-Path $StateDir "$StateKey.offline"
     $since = Get-Date; $n = 0
     if (Test-Path $f) {
         $a = (Get-Content $f -Raw).Trim() -split '\|'
@@ -1371,7 +1390,7 @@ function Mark-Offline {
 }
 # Co mang lai: tra ve 1 dong bao tren Telegram ($null neu truoc do khong mat mang)
 function Pop-OfflineNote {
-    $f = Join-Path $StateDir "$Account.offline"
+    $f = Join-Path $StateDir "$StateKey.offline"
     if (-not (Test-Path $f)) { return $null }
     $a = (Get-Content $f -Raw).Trim() -split '\|'
     Remove-Item $f -Force
@@ -1385,8 +1404,8 @@ function Pop-OfflineNote {
 # Tra ve 1 dong mo ta de gan vao tin Telegram ($null neu khong tu lap lich)
 function Plan-NextRun([string]$outcome) {
     if (-not $AutoSchedule -or -not $Account) { return $null }
-    if (Test-Path (Join-Path $StateDir "$Account.off")) {
-        Log "Tu lap lich dang tat cho $Account (state\$Account.off)"
+    if (Test-Path (Join-Path $StateDir "$StateKey.off")) {
+        Log "Tu lap lich dang tat cho $StateKey (state\$StateKey.off)"
         return "⏸️ Tự lập lịch đang tắt cho $Account (bật lại: /chay $Account)"
     }
     $st = Get-FarmState
@@ -1396,6 +1415,16 @@ function Plan-NextRun([string]$outcome) {
     $now = Get-Date; $at = $null; $why = ""
 
     switch ($outcome) {
+        'tham_hiem' {
+            # Thu cuoi tham hiem: hen luc to doi xong som nhat (doc dong ho tren tab, hoac luc xuat phat + 12 tieng)
+            $retries = 0
+            if ($script:ThNext) {
+                $ripe = $script:ThNext
+                $at = $script:ThNext.AddMinutes($ThDelayMin); $why = "tổ đội xong sớm nhất lúc $($script:ThNext.ToString('HH:mm dd/MM'))"
+            } else {
+                $at = $now.AddMinutes($ThRetryMin); $why = "không đọc được giờ tổ đội xong, xem lại sau $ThRetryMin phút"
+            }
+        }
         'sown' {
             $ripe = if ($script:SowRipe) { $script:SowRipe } else { $script:SowTime.AddHours($GrowHours) }; $retries = 0
             $at = $ripe.AddMinutes($AutoDelayMinutes); $why = "cây chín $($ripe.ToString('HH:mm'))"
@@ -1585,7 +1614,10 @@ function Add-History {
             t    = $script:StartTime.ToString('yyyy-MM-dd HH:mm:ss')
             end  = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
             acc  = $Account
+            job  = $Job
             kq   = $(if ($ViewOnly -and $script:Outcome -ne 'error') { 'view' } else { [string]$script:Outcome })
+            nhan = $(if ($IsTH) { [int]$script:ThClaimed } else { 0 })    # tham hiem: so to doi nhan thuong / cho xuat phat
+            di   = $(if ($IsTH) { [int]$script:ThStarted } else { 0 })
             thu  = [int]$harvested
             gieo = [bool]$script:SowTime
             hat  = (@($script:SownSeeds | Select-Object -Unique) -join '+')
@@ -1641,7 +1673,8 @@ if (-not $gotMutex) {
     # Chinh tai khoan nay dang chay (vd /chay trung lich tu dong) -> khong xep hang chay lai lan nua
     $same = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object {
         $_.ProcessId -ne $PID -and $_.CommandLine -match 'ddtank_farm\.ps1' -and $Account -and
-        $_.CommandLine -match ('-Account\s+"?' + [regex]::Escape($Account) + '"?(\s|$)') })
+        $_.CommandLine -match ('-Account\s+"?' + [regex]::Escape($Account) + '"?(\s|$)') -and
+        (($_.CommandLine -match '-Job\s+"?tham_hiem') -eq $IsTH) })   # cung tai khoan + CUNG viec (nong trai / tham hiem)
     if ($same.Count) {
         Log "Tai khoan $Account dang co luot chay khac (PID $($same[0].ProcessId)) -> thoat, luot do se tu hen lich"
         exit 2
@@ -1666,7 +1699,7 @@ $exitCode = 0
 $script:StartTime = Get-Date
 $harvested = 0
 try {
-    Log "===== BAT DAU (tai khoan: $(if ($Account) { $Account } else { '-' })$(if ($ViewOnly) { ', chi xem ruong' } else { ", hat: $($script:SeedKey) ($($script:SeedFrom))" })$(if ($Manual) { ', chay tay' })) ====="
+    Log "===== BAT DAU (tai khoan: $(if ($Account) { $Account } else { '-' })$(if ($IsTH) { ', thu cuoi tham hiem' } elseif ($ViewOnly) { ', chi xem ruong' } else { ", hat: $($script:SeedKey) ($($script:SeedFrom))" })$(if ($Manual) { ', chay tay' })) ====="
     try { Clean-OldLogs } catch { Log "Don log loi: $($_.Exception.Message)" }
     Clear-StaleAdb
     # Dang /tamdung -> lich tu dong khong chay (chay tay -Manual / xem ruong van chay), hen lai khi het tam dung
@@ -1698,7 +1731,7 @@ try {
     # Lich du phong: hen san 1 luot sau $SafetyRunMin phut. Luot nay bi treo / bi Task Scheduler diet (45 phut) thi van con
     # luot sau (19/11 00:26 bi diet giua chung -> mat lich toi khi chay tay). Xong binh thuong thi Plan-NextRun ghi de.
     if ($AutoSchedule -and $Account -and -not $ViewOnly -and -not $LoginOnly -and -not $SkipLaunch -and $SafetyRunMin -gt 0 -and
-        -not (Test-Path (Join-Path $StateDir "$Account.off"))) {   # /huylich: khong hen lich du phong (Plan-NextRun cung khong ghi de)
+        -not (Test-Path (Join-Path $StateDir "$StateKey.off"))) {   # /huylich: khong hen lich du phong (Plan-NextRun cung khong ghi de)
         try {
             $safe = (Get-Date).AddMinutes($SafetyRunMin)
             Register-NextRun $safe
@@ -1713,6 +1746,13 @@ try {
     # vao game loi -> tat app roi lam lai (Enter-Game tu mo lai app)
     if (-not $SkipLaunch) { Retry-Step 'vao_game' 'vào game' { Enter-Game } { [void](Invoke-MuMu "control -v $($script:Index) app close -pkg $Package" 30); Nap 3 } }
     if ($LoginOnly) { Log "===== DA VAO SANH (-LoginOnly) ====="; return }
+    if ($IsTH) {
+        # Thu cuoi tham hiem (tham_hiem\cong_cu\tham_hiem.ps1): loi giua chung -> lam lai buoc (to doi da xong thi lan sau la "dang chay")
+        Retry-Step 'tham_hiem' 'thám hiểm' { Invoke-ThamHiem }
+        $script:Outcome = 'tham_hiem'
+        Log "===== HOAN THANH (tham hiem) ====="
+        return
+    }
     if (-not $SkipLaunch) { Retry-Step 'mo_nong_trai' 'mở nông trại' { Open-Farm } }
     if ($ViewOnly) {
         View-Farm
@@ -1802,7 +1842,7 @@ finally {
         # /xemruong khong dong vao lich; cac lan chay khac tu hen lan sau
         if ($ViewOnly) {
             try {
-                $i = Get-ScheduledTask -TaskName "DDTank Farm - $Account" -ErrorAction Stop | Get-ScheduledTaskInfo
+                $i = Get-ScheduledTask -TaskName $TaskFull -ErrorAction Stop | Get-ScheduledTaskInfo
                 if ($i.NextRunTime) { $nextLine = "⏰ Lịch thu hoạch tới: $($i.NextRunTime.ToString('HH:mm dd/MM/yyyy')) (không đổi)" }
             } catch { $nextLine = "⏰ Tài khoản này chưa có lịch tự lập" }
         } elseif (-not $SkipLaunch) { try { $nextLine = Plan-NextRun $script:Outcome } catch { Log "Tu lap lich loi: $($_.Exception.Message)" } }
@@ -1812,13 +1852,13 @@ finally {
         } elseif ($script:InMaintenance) {
             if ($script:MaintSeen) {
                 # Da mo game va game bao bao tri -> gui kem anh popup
-                $msg = "🚜 DDTank [$Account] $(Get-Date -Format 'dd/MM HH:mm')`n🛠️ Game đang bảo trì (máy chủ báo bảo trì khi vào game) – không chạy lượt này, không tính là lỗi."
+                $msg = "$TgHead $(Get-Date -Format 'dd/MM HH:mm')`n🛠️ Game đang bảo trì (máy chủ báo bảo trì khi vào game) – không chạy lượt này, không tính là lỗi."
                 if ($nextLine) { $msg += "`n$nextLine" }
                 Log ("Telegram <- $(if ($script:LastShot) { Split-Path $script:LastShot -Leaf })`n    " + ($msg -replace "`n", "`n    "))
                 [void](Post-Telegram @($script:LastShot) $msg)
             } else {
                 # Chua mo thiet bi -> khong co anh: gui 1 tin chu
-                $msg = "🚜 DDTank [$Account] $(Get-Date -Format 'dd/MM HH:mm')`n🛠️ Đang giờ bảo trì game ($(Maint-Text)) – không chạy lượt này."
+                $msg = "$TgHead $(Get-Date -Format 'dd/MM HH:mm')`n🛠️ Đang giờ bảo trì game ($(Maint-Text)) – không chạy lượt này."
                 if ($nextLine) { $msg += "`n$nextLine" }
                 Log ("Telegram <- (tin chu)`n    " + ($msg -replace "`n", "`n    "))
                 [void](Post-Telegram @() $msg)
