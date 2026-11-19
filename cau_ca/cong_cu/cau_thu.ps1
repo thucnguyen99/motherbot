@@ -1,4 +1,4 @@
-# Cau thu N con tren thiet bi auto (nhan vat phai dung san o cau tau, dang thay nut Bat dau cau ca)
+﻿# Cau thu N con tren thiet bi auto (nhan vat phai dung san o cau tau, dang thay nut Bat dau cau ca)
 #   -NghiSau 12,20   : cu cau ngau nhien 12-20 con thi nghi 1 lan
 #   -NghiGiay 20,90  : moi lan nghi ngau nhien 20-90 giay
 #   -KhongNguoi      : tat ngau nhien hoa (lech toa do, thoi gian giu ngon, cho giua cac buoc, nghi)
@@ -36,9 +36,11 @@ if (-not $Serial) {
     Say "Thiet bi '$ThietBi' -> ADB $Serial"
 }
 $src = (Get-Content (Join-Path $PSScriptRoot "Ring.cs") -Raw) + "`n" + (Get-Content (Join-Path $PSScriptRoot "Fisher.cs") -Raw)
-# gop using len dau
-$usings = ($src -split "`n" | Where-Object { $_ -match '^using ' } | Sort-Object -Unique) -join "`n"
-$body = ($src -split "`n" | Where-Object { $_ -notmatch '^using ' }) -join "`n"
+# gop using len dau. Tach dong theo ca CRLF lan LF: git (core.autocrlf) co the de Ring.cs LF, Fisher.cs CRLF
+# -> "using System;`r" khac "using System;" -> trung using -> loi bien dich (gap 19/11 sau khi gop code).
+$srcLines = $src -split "`r?`n"
+$usings = ($srcLines | Where-Object { $_ -match '^using ' } | ForEach-Object { $_.Trim() } | Sort-Object -Unique) -join "`n"
+$body = ($srcLines | Where-Object { $_ -notmatch '^using ' }) -join "`n"
 Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition ($usings + "`n" + $body)
 $f = New-Object Fisher $adb, $Serial, $out, (Join-Path (Split-Path $PSScriptRoot) "mau")
 $f.TargetR = $TargetR; $f.TapLatency = $LeadSec; $f.FastTap = -not $SlowTap; $f.Human = -not $KhongNguoi
