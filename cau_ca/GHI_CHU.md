@@ -133,3 +133,13 @@ Ghẹ 181g, Ghẹ 185g, Tôm 54g, Cá mòi 112g, Cá hố 203g, Cá hố 286g, C
 - **Chưa sửa** — vòng 3 bấm rồi mà game không nhận (2 lần):
   - Ảnh 350 ms sau khi bấm không có chữ kết quả. Bot đọc nhầm vòng xanh dương thành "Xuat sac".
   - Sau đó game báo "Thao tác chờ đã hết, con cá đã tuột".
+- **Đọc nhầm "Xuất sắc" — đã sửa:**
+  - Trong 41 vòng ghi "Xuat sac" (18–19/11), chỉ khoảng 10 vòng có chữ Xuất sắc thật. Các vòng còn lại không có chữ hoặc chỉ còn chữ cũ của vòng trước đang mờ dần. Nhầm nhiều nhất ở vòng 3: 25/25 vòng là đọc nhầm.
+  - Nguyên nhân 1: vùng đọc chữ chứa cả vòng xanh dương nên luôn có điểm xanh.
+  - Nguyên nhân 2: ở vòng 2–3, chữ kết quả mới thường hiện muộn hơn 350 ms.
+  - Hậu quả: bot học theo kết quả nhầm, bù `nhanh` trôi tới −10 và `vua` tới −5.
+  - Sửa vùng đọc: chỉ đọc dải ngang |dy| ≤ 25 quanh tâm, bỏ quả cầu (r < 16) và vòng xanh dương (r 28–46).
+  - Đo trên ảnh: Tuyệt vời 95–600+ điểm vàng; Xuất sắc 16–32 điểm xanh (không có chữ là 0–1); Hụt 83–97 điểm đỏ.
+  - Sửa cách đọc: đọc mọi khung hình tới khi thấy chữ mới, tối đa 1,5 s sau khi bấm. Log ghi "chu hien sau X s". Không thấy chữ thì ghi "Khong ro" và không học.
+  - Đặt lại bù trên máy DELL: `vua` −2, `nhanh` −3.
+  - Các dòng `Xuat sac` ở vòng 2–3 trong `hieu_chinh.csv` trước 19/11 22:30 **không đáng tin**.

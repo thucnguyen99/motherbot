@@ -153,23 +153,28 @@ public class Fisher
 
     public Dictionary<string, int> Ratings = new Dictionary<string, int>();
 
-    // Doc chu cham diem tren vong tron theo mau: Tuyet voi (vang cam) / Xuat sac (xanh duong) / Hut (do)
+    // Doc chu cham diem MOI hien: Tuyet voi (vang cam) / Xuat sac (xanh duong) / Hut (do). null = chua co chu.
+    // Chi dem dai ngang |dy| <= 25 quanh tam vong tron, bo qua cau (r < 16) va vong xanh duong (r 28-46):
+    // ban cu dem ca vong xanh duong -> khong co chu van ra "Xuat sac" (19/11: 31/41 vong ghi Xuat sac la doc nham, chu yeu vong 3).
+    // Chu cu cua vong truoc dang mo dan (nhat mau, troi len tren) khong dat nguong mau.
+    // Do tren anh da luu: Tuyet voi vang 95-600+; Xuat sac xanh 16-32 (khong co chu 0-1); Hut do 83-97 (con lai <= 27)
     static string Rating(byte[] p)
     {
-        int yel = 0, blu = 0, red = 0;
-        for (int y = Math.Max(0, Ring.CY - 20); y < Math.Min(H, Ring.CY + 40); y += 2)
-            for (int x = Math.Max(0, Ring.CX - 84); x < Math.Min(W, Ring.CX + 76); x += 2)
+        int yel = 0, blu = 0, red = 0, cx = Ring.CX, cy = Ring.CY;   // chu che qua cau -> dung tam do luc vong tron hien
+        for (int y = Math.Max(0, cy - 25); y <= Math.Min(H - 1, cy + 25); y += 2)
+            for (int x = Math.Max(0, cx - 70); x <= Math.Min(W - 1, cx + 70); x += 2)
             {
+                int dx = x - cx, dy = y - cy, d2 = dx * dx + dy * dy;
+                if (d2 < 16 * 16 || (d2 >= 28 * 28 && d2 <= 46 * 46)) continue;
                 int i = (y * W + x) * 3; int R = p[i], G = p[i + 1], B = p[i + 2];
                 if (R > 220 && G > 140 && G < 230 && B < 90) yel++;
                 else if (B > 200 && R < 120) blu++;
                 else if (R > 150 && G < 80 && B < 80) red++;
             }
-        // do 18/11: Hut do=152-278 (xanh 42-50 la vong xanh duong); Tuyet voi vang=187-247; Xuat sac xanh=107-444
-        if (red >= 80) return "Hut";
-        if (yel >= 80) return "Tuyet voi";
-        if (blu >= 80) return "Xuat sac";
-        return "?(vang " + yel + " xanh " + blu + " do " + red + ")";
+        if (red >= 50) return "Hut";
+        if (yel >= 50) return "Tuyet voi";
+        if (blu >= 10 && blu < 60) return "Xuat sac";   // >= 60: man hinh khac (19/11: 1 anh da chuyen canh, xanh 73)
+        return null;
     }
 
     // ---------- bu rieng tung loai vong (tu hoc, luu theo may) ----------
@@ -452,24 +457,24 @@ public class Fisher
         for (int round = 1; round <= 6 && !gotResult; round++)
         {
             TrackAndTap(bg, ref last, round, pullTap);
+            DateTime tapAt = DateTime.Now;
             long l2 = last; DateTime t2;
-            Thread.Sleep(350); var pr = Next(ref l2, out t2); SaveFrame(pr, no + "_v" + round + "_sau_bam");
-            string rt = Rating(pr);
-            // khong bam ma van doc ra chu (18/11 lan 10: vong xanh duong doc nham thanh "Xuat sac") -> ghi ro la khong bam
-            if (!tapped && rt != "Hut") rt = "Khong bam";
-            Log("  ket qua vong " + round + ": " + rt);
-            if (Ratings.ContainsKey(rt)) Ratings[rt]++; else Ratings[rt] = 1;
-            if (tapBand != null) Learn(tapBand, rt);
-            if (CsvPath != null)
-                File.AppendAllText(CsvPath, string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "{0:yyyy-MM-dd HH:mm:ss},{1},{2},{3},{4},{5},{6},{7},\"{8}\",{9},{10}\r\n",
-                    DateTime.Now, no, round, LastTap, TargetR, TapLatency, rt, Human ? 1 : 0, LastTrace.Trim(), Path.GetFileName(outDir), LastBand));
+            // vong 2-3: chu ket qua moi thuong hien muon hon 350ms (chu vong truoc con tren man hinh)
+            // -> doc chu tren moi khung toi khi thay chu moi (toi da 1.5s), xen ke voi cho vong tiep / man Chuc mung
+            Thread.Sleep(250); var pr = Next(ref l2, out t2);
+            string rt = Rating(pr); double rtSec = (DateTime.Now - tapAt).TotalSeconds;
+            if (rt != null) SaveFrame(pr, no + "_v" + round + "_sau_bam");
             // cho: man toi (xong) / vong sang moi o xa (vong tiep) / mat qua cau qua lau (truot)
             var dl2 = DateTime.Now.AddSeconds(4); DateTime noBall = DateTime.MinValue; bool nextRound = false;
             while (DateTime.Now < dl2)
             {
                 p = Next(ref last, out t);
                 if (Dark(p)) { gotResult = true; break; }
+                if (rt == null && (DateTime.Now - tapAt).TotalSeconds < 1.5)
+                {
+                    rt = Rating(p); rtSec = (DateTime.Now - tapAt).TotalSeconds;
+                    if (rt != null) SaveFrame(p, no + "_v" + round + "_sau_bam");
+                }
                 if (Ball(p))
                 {
                     noBall = DateTime.MinValue;
@@ -482,6 +487,16 @@ public class Fisher
                     if ((DateTime.Now - noBall).TotalSeconds > 1.5) break;
                 }
             }
+            // khong thay chu moi -> "Khong ro", KHONG hoc (ban cu doc nham vong xanh duong thanh "Xuat sac" -> bu vong nhanh troi toi -10)
+            if (rt == null) { SaveFrame(pr, no + "_v" + round + "_sau_bam"); rt = tapped ? "Khong ro" : "Khong bam"; }
+            else if (!tapped && rt != "Hut") rt = "Khong bam";
+            Log(string.Format("  ket qua vong {0}: {1}{2}", round, rt, rt == "Khong ro" || rt == "Khong bam" ? "" : string.Format(" (chu hien sau {0:0.00}s)", rtSec)));
+            if (Ratings.ContainsKey(rt)) Ratings[rt]++; else Ratings[rt] = 1;
+            if (tapBand != null) Learn(tapBand, rt);
+            if (CsvPath != null)
+                File.AppendAllText(CsvPath, string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "{0:yyyy-MM-dd HH:mm:ss},{1},{2},{3},{4},{5},{6},{7},\"{8}\",{9},{10}\r\n",
+                    DateTime.Now, no, round, LastTap, TargetR, TapLatency, rt, Human ? 1 : 0, LastTrace.Trim(), Path.GetFileName(outDir), LastBand));
             if (!gotResult && !nextRound) { SaveFrame(Next(ref last, out t), no + "_3_khong_chuc_mung"); return "TRUOT sau vong " + round + " (khong co man Chuc mung)"; }
         }
         if (!gotResult) return "TRUOT (qua 6 vong)";
