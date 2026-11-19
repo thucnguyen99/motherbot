@@ -269,6 +269,10 @@ public class Fisher
             if (pts.Count >= 3)
             {
                 int k0 = 0; while (k0 < pts.Count - 3 && pts[k0].Value > 78) k0++;   // r > 78 do khong chuan (lan vong do ngoai)
+                // luong hinh khung > 0.085s (vong 3 hay khung ngay sau diem dau: 75 @-0.01 roi 68 @0.10, 61, 54...) -> bo diem truoc
+                // khoang khung neu sau do con >= 3 diem: diem cu keo toc do xuong (189 thay vi ~300 px/s) -> bam muon, Hut (19/11 lan 22).
+                // Ca "thua khung" co khoang cach deu 0.065-0.069s -> khong bi anh huong
+                for (int i = pts.Count - 3; i > k0; i--) if (pts[i].Key - pts[i - 1].Key > 0.085) { k0 = i; break; }
                 int n = pts.Count - k0;
                 if (pts[pts.Count - 1].Key - pts[k0].Key >= (round > 1 ? 0.05 : 0.08))
                 {

@@ -143,3 +143,8 @@ Ghẹ 181g, Ghẹ 185g, Tôm 54g, Cá mòi 112g, Cá hố 203g, Cá hố 286g, C
   - Sửa cách đọc: đọc mọi khung hình tới khi thấy chữ mới, tối đa 1,5 s sau khi bấm. Log ghi "chu hien sau X s". Không thấy chữ thì ghi "Khong ro" và không học.
   - Đặt lại bù trên máy DELL: `vua` −2, `nhanh` −3.
   - Các dòng `Xuat sac` ở vòng 2–3 trong `hieu_chinh.csv` trước 19/11 22:30 **không đáng tin**.
+- **Chạy thử 19/11 22:30, 25 lần (bộ đọc chữ mới):**
+  - Kết quả: 24/25 con, 31 Tuyệt vời, 0 Xuất sắc, 1 Hụt. Chữ kết quả đọc được ngay khung đầu (0,25 s) ở mọi vòng, không có "Khong ro".
+  - Lần Hụt duy nhất (lần 22, vòng 3): luồng hình khựng 0,11 s ngay sau điểm đầu (75 @ −0,01 s, rồi 68 @ 0,10 s, 61, 54…).
+    - Đường thẳng kẻ qua cả điểm cũ cho tốc độ 189 px/s, trong khi tốc độ thật khoảng 300 px/s → bấm muộn.
+    - Sửa: khi tính tốc độ, bỏ các điểm đứng trước khoảng khựng > 0,085 s nếu sau đó còn ≥ 3 điểm. **Chưa chạy thử**: game thoát ra màn đăng nhập lúc 22:36.
