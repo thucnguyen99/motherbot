@@ -1,4 +1,4 @@
-# Thánh vật: nhận rương "Đạt được" (19/11/2026)
+﻿# Thánh vật: nhận rương "Đạt được" (19/11/2026)
 
 Thưởng treo máy: tích luỹ theo giờ, tối đa **9 giờ**, cứ 6 phút ra một lần thưởng. Mức hiện tại là "Chương 3 Tổ Côn Trùng", 10/giờ.
 
@@ -29,7 +29,7 @@ Bot nhận rương trong **mỗi lượt nông trại** (`ddtank_farm.ps1`, côn
 - Lỗi giữa chừng → làm lại bước Thánh vật (tối đa 3 lần), trước mỗi lần thử thì đóng popup và về sảnh.
 - Hết lần thử → **bỏ qua**, Telegram ghi "⚠️ Thánh vật lỗi…". Bot về sảnh (không được thì mở lại game), rồi **vẫn thu hoạch bình thường**.
 - Telegram: ảnh "🎁 Thánh vật: đã nhận rương Đạt được" kèm dòng tóm tắt. Lịch sử `lich_su.jsonl` có trường `tv` (đã nhận hay chưa).
-- Không chạy khi `/xemruong` (`-ViewOnly`) hoặc `-SkipLaunch`.
+- Chạy cả khi `/xemruong` (`-ViewOnly`, từ 20/11 theo yêu cầu). Không chạy khi `-SkipLaunch`, `-LoginOnly` hoặc thám hiểm (`-Job tham_hiem`).
 
 ## Trạng thái
 Code đã viết và qua kiểm tra cú pháp. **Chưa chạy thử trong một lượt nông trại thật.**

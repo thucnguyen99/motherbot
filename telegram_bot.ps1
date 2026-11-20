@@ -293,8 +293,8 @@ $Help = @"
 🤖 Lệnh bot DDTank:
 /chay <tài khoản> [loại hạt] – chạy ngay thu hoạch + trồng (vd: /chay akaka, /chay akaka nho). Ghi hạt = lưu cố định cho tài khoản, các lượt tự động sau cũng gieo loại đó (về khoai: /chay akaka khoai). Xong tự lập lịch lần sau lúc cây chín
    Loại hạt: $(Get-SeedListText)
-/xemruong <tài khoản> – vào game chụp ruộng, không thu hoạch / gieo, không đổi lịch (vd: /xemruong akaka)
-/thamhiem <tài khoản> – chạy ngay Thú cưỡi thám hiểm: nhận thưởng tổ đội đã xong + cho đi tiếp (vd: /thamhiem akata99). Xong tự lập lịch lần sau lúc tổ đội xong
+/xemruong <tài khoản> – vào game nhận rương Thánh vật + chụp ruộng, không thu hoạch / gieo, không đổi lịch (vd: /xemruong akaka)
+/thamhiem <tài khoản> – chạy ngay Thú cưỡi thám hiểm: nhận thưởng tổ đội đã xong + cho đi tiếp (vd: /thamhiem akaka). Xong tự lập lịch lần sau lúc tổ đội xong
 /trangthai – script có đang chạy không, thiết bị, lịch, log gần nhất
 /anh – chụp màn hình thiết bị auto
 /log – log lần chạy gần nhất
@@ -303,7 +303,7 @@ $Help = @"
 /maytinh – RAM, ổ đĩa, CPU, Wi-Fi, VPN, lần khởi động lại / màn hình xanh gần nhất
 /tamdung <số giờ> – tạm dừng mọi lịch tự động (vd: /tamdung 2, /tamdung 0.5). /chay vẫn chạy được
 /tiep – bật lại lịch tự động ngay
-/huylich <tài khoản> – dừng tự lập lịch của tài khoản (bật lại: /chay <tài khoản>)
+/huylich <tài khoản> – xoá lịch và tắt tự lập lịch của tài khoản, cả nông trại lẫn thám hiểm (bật lại: /chay <tài khoản> cho nông trại, /thamhiem <tài khoản> cho thám hiểm)
 /datlich <giờ> <chu kỳ> <tài khoản> – cài lịch cố định (vd: /datlich 23:00 8:05 akaka)
 /xoalich – xoá lịch cố định
 /dung – dừng lượt đang chạy, tắt app và thiết bị
@@ -330,7 +330,7 @@ function Handle([string]$text) {
             $p = Start-Process powershell.exe -WindowStyle Hidden -WorkingDirectory $Root -PassThru -ArgumentList @(
                 '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$Farm`"", '-Account', $arg[0], '-ViewOnly', '-Manual')
             BLog "Xem ruong PID $($p.Id) tai khoan $($arg[0])"
-            Reply "👀 Đang vào game xem ruộng của $($arg[0]) (PID $($p.Id)), khoảng 3–4 phút sẽ có ảnh. Không thu hoạch, không đổi lịch.$queueTxt"
+            Reply "👀 Đang vào game xem ruộng của $($arg[0]) (PID $($p.Id)), khoảng 3–4 phút sẽ có ảnh. Có nhận rương Thánh vật; không thu hoạch, không đổi lịch.$queueTxt"
         }
 
         '/tamdung' {
@@ -401,7 +401,7 @@ function Handle([string]$text) {
 
         '/thamhiem' {
             # Thu cuoi tham hiem: ddtank_farm.ps1 -Job tham_hiem (nhan thuong 3 to doi + cho di tiep, tu hen lan sau luc to doi xong)
-            if ($arg.Count -lt 1 -or $arg[0] -notmatch $ValidAcc) { Reply "Cách dùng: /thamhiem <tài khoản>   vd: /thamhiem akata99"; return }
+            if ($arg.Count -lt 1 -or $arg[0] -notmatch $ValidAcc) { Reply "Cách dùng: /thamhiem <tài khoản>   vd: /thamhiem akaka"; return }
             $run = @(Get-FarmProcs)
             $mine = @($run | Where-Object { $_.CommandLine -match ('-Account\s+"?' + [regex]::Escape($arg[0]) + '"?(\s|$)') -and $_.CommandLine -match '-Job\s+"?tham_hiem' })
             if ($mine.Count) { Reply "⏳ Thám hiểm của $($arg[0]) đang chạy rồi (PID $($mine[0].ProcessId)). Xem /trangthai"; return }
@@ -462,11 +462,22 @@ function Handle([string]$text) {
             if ($arg.Count -ne 1 -or $arg[0] -notmatch $ValidAcc) { Reply "Cách dùng: /huylich <tài khoản>   vd: /huylich akaka"; return }
             $acc = $arg[0]
             New-Item -ItemType Directory -Force $StateDir | Out-Null
-            Set-Content -Path (Join-Path $StateDir "$acc.off") -Value (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
-            $t = Get-ScheduledTask -TaskName "$TaskName - $acc" -ErrorAction SilentlyContinue
-            if ($t) { Unregister-ScheduledTask -TaskName "$TaskName - $acc" -Confirm:$false }
-            $msg = if ($t) { "🛑 Đã huỷ lịch tự lập của $acc và tắt tự lập lịch." } else { "🛑 $acc chưa có lịch tự lập; đã tắt tự lập lịch." }
-            Reply "$msg Bật lại: /chay $acc"
+            # Huy ca nong trai lan tham hiem cua tai khoan: file .off chan tu lap lich (ke ca luot dang chay, lich du phong)
+            $now = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+            $done = @()
+            foreach ($j in @(@{ Key = $acc; Task = "$TaskName - $acc"; Name = "nông trại"; On = "/chay $acc" },
+                             @{ Key = "$acc.tham_hiem"; Task = "$TaskName - $acc - tham hiem"; Name = "thám hiểm"; On = "/thamhiem $acc" })) {
+                Set-Content -Path (Join-Path $StateDir "$($j.Key).off") -Value $now
+                $t = Get-ScheduledTask -TaskName $j.Task -ErrorAction SilentlyContinue
+                if ($t) {
+                    $nx = ($t | Get-ScheduledTaskInfo).NextRunTime
+                    Unregister-ScheduledTask -TaskName $j.Task -Confirm:$false
+                    $done += "• $($j.Name): đã xoá lịch$(if ($nx) { " lúc $($nx.ToString('HH:mm dd/MM'))" }) – bật lại: $($j.On)"
+                } else { $done += "• $($j.Name): chưa có lịch – bật lại: $($j.On)" }
+            }
+            $run = @(Get-FarmProcs | Where-Object { $_.CommandLine -match ('-Account\s+"?' + [regex]::Escape($acc) + '"?(\s|$)') })
+            $note = if ($run.Count) { "`nℹ️ Lượt đang chạy (PID $($run[0].ProcessId)) vẫn chạy nốt nhưng xong sẽ không hẹn lượt sau. Dừng ngay: /dung" } else { "" }
+            Reply ("🛑 Đã tắt tự lập lịch của $($acc):`n" + ($done -join "`n") + $note)
         }
 
         '/datlich' {
@@ -554,7 +565,7 @@ try {
         @{ command = "maytinh";   description = "RAM, ổ đĩa, Wi-Fi, khởi động lại gần nhất" },
         @{ command = "tamdung";   description = "Tạm dừng lịch tự động: /tamdung <số giờ>" },
         @{ command = "tiep";      description = "Bật lại lịch tự động" },
-        @{ command = "huylich";   description = "Dừng tự lập lịch: /huylich <tài khoản>" },
+        @{ command = "huylich";   description = "Xoá lịch nông trại + thám hiểm: /huylich <tài khoản>" },
         @{ command = "datlich";   description = "Cài lịch cố định: /datlich 23:00 8:05 <tài khoản>" },
         @{ command = "xoalich";   description = "Xoá lịch cố định" },
         @{ command = "dung";      description = "Dừng lượt đang chạy, tắt thiết bị" },

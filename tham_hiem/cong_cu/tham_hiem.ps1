@@ -3,7 +3,8 @@
 #  dung chung Snap / Tap / Nap / Rnd / Log / Save-Shot / Add-Photo / Close-Popups / khoa thiet bi / Telegram / lich).
 #  Sanh -> Day do -> Thu cuoi -> Thu cuoi Tham hiem -> 3 to doi:
 #    Ket thuc -> Nhan -> (popup "Co thuong") -> Xuat phat | Chua co -> Xuat phat | dang chay -> doc gio con lai
-#  Hen lan sau = to doi xong som nhat + $ThDelayMin phut. Ghi chu, toa do, nguong: tham_hiem\GHI_CHU.md
+#  Giong nong trai: hen lan sau = to doi xong som nhat + $ThDelayMin (-5 = vao TRUOC 5 phut), toi noi to doi nao
+#  con <= $ThWaitMin phut la xong thi ngoi cho roi nhan + cho di tiep luon. Ghi chu, toa do, nguong: tham_hiem\GHI_CHU.md
 #  !!! KHONG BAO GIO bam "Goi ve" (mat het chien loi pham). Nhan / Xuat phat / Goi ve nam CUNG 1 cho
 #      -> moi lan bam deu chup lai va so ca 3 nut ngay truoc khi bam.
 # =====================================================================
@@ -11,7 +12,8 @@ $ThDir     = Join-Path $Root "tham_hiem"
 $ThMau     = Join-Path $ThDir "mau"
 $ThDigits  = Join-Path $ThMau "so_tab.txt"      # mau chu so dong ho tren tab (TabTimer.cs)
 $ThHours   = 12      # moi luot tham hiem 12 tieng
-$ThDelayMin = 3      # hen lan sau: to doi xong som nhat + 3 phut
+$ThDelayMin = -5     # hen lan sau: to doi xong som nhat - 5 phut (vao truoc roi cho, giong nong trai $AutoDelayMinutes)
+$ThWaitMin  = 12     # toi noi ma to doi con <= 12 phut la xong -> ngoi cho, xong la nhan luon (giong nong trai $WaitRipeMinutes)
 $ThTimerMaxDist = 6.0  # 19/11: chu so dung lech 0-2.6, chu so chua co mau lech 12.2 -> qua nguong thi khong tin
 $ThRetryMin = 60     # khong biet gio to doi nao xong -> xem lai sau 60 phut
 $ThBtn       = @(1408, 818)            # Nhan / Xuat phat / Goi ve (cung 1 cho, nut 305x92)
@@ -29,6 +31,7 @@ $script:ThLines   = @()    # dong tom tat tung to doi (Telegram)
 $script:ThNext    = $null  # gio to doi xong som nhat
 $script:ThClaimed = 0      # so to doi da nhan thuong luot nay
 $script:ThStarted = 0      # so to doi da cho xuat phat luot nay
+$script:ThWaitedMin = 0    # so phut da ngoi cho to doi xong
 
 function ThFind($name, $maxScore, $region) {
     return ,@([Vision]::FindAll($Shot, (Join-Path $ThMau "$name.png"), $maxScore, $region[0], $region[1], $region[2], $region[3]))
@@ -185,7 +188,7 @@ function Exit-ThamHiem {
 # Ca luot tham hiem (sau Enter-Game, dang o sanh chinh)
 function Invoke-ThamHiem {
     $script:ThLines = @(); $script:ThNext = $null
-    $script:ThClaimed = 0; $script:ThStarted = 0
+    $script:ThClaimed = 0; $script:ThStarted = 0; $script:ThWaitedMin = 0
     Open-ThamHiem
     $state = @{}; $startAt = @{}
     for ($k = 1; $k -le 3; $k++) {
@@ -194,6 +197,35 @@ function Invoke-ThamHiem {
         Nap ((Rnd 6 15) / 10.0)   # nghi ngan giua 2 to doi
     }
     $rem = ThReadTimers
+    # Giong nong trai cho cay chin: to doi nao con <= $ThWaitMin phut la xong -> ngoi cho tai man Tham hiem, xong la nhan + cho di tiep
+    if ($ThWaitMin -gt 0) {
+        $now = Get-Date; $waitEnd = $now.AddMinutes($ThWaitMin)
+        $soon = @(1..3 | Where-Object { $state[$_] -eq 'dang_chay' -and $rem.ContainsKey($_) -and $now.Add($rem[$_]) -le $waitEnd } |
+            Sort-Object { $rem[$_] })
+        if ($soon.Count) {
+            $w0 = Get-Date
+            foreach ($k in $soon) {
+                $end = $now.Add($rem[$k])
+                $left = [int][math]::Ceiling(($end - (Get-Date)).TotalSeconds)
+                if ($left -gt 0) {
+                    Log "To doi ${k}: con $left giay la xong -> ngoi cho (toi da $ThWaitMin phut)"
+                    Start-Sleep -Seconds ($left + (Rnd 5 15))
+                }
+                # dong ho co the lech vai chuc giay -> kiem tra lai toi da 3 phut, 20 giay 1 lan
+                $dl = (Get-Date).AddMinutes(3)
+                do {
+                    $r = ThTeam $k
+                    if ($r -ne 'dang_chay') { $state[$k] = $r; $startAt[$k] = Get-Date; break }
+                    Log "To doi ${k}: chua xong, cho them 20 giay"; Start-Sleep -Seconds 20
+                } while ((Get-Date) -lt $dl)
+                if ($state[$k] -eq 'dang_chay') { Log "To doi ${k}: cho qua gio ma van chua xong -> de lan sau" }
+                Nap ((Rnd 6 15) / 10.0)
+            }
+            $script:ThWaitedMin = [math]::Max(1, [int][math]::Round(((Get-Date) - $w0).TotalMinutes))
+            Log "Da cho to doi xong $($script:ThWaitedMin) phut"
+            $rem = ThReadTimers
+        }
+    }
     Save-Shot "tham_hiem_tong_ket"
     Add-Photo (Caption "🐎 Thú cưỡi thám hiểm: 3 tổ đội sau lượt này")
     $now = Get-Date
@@ -206,6 +238,7 @@ function Invoke-ThamHiem {
         $script:ThLines += "🐎 Tổ đội ${k}: $what – $endTxt"
         if ($end -and (-not $script:ThNext -or $end -lt $script:ThNext)) { $script:ThNext = $end }
     }
+    if ($script:ThWaitedMin) { $script:ThLines += "⏳ Đã chờ tổ đội xong $($script:ThWaitedMin) phút" }
     Log ("Tham hiem: nhan $($script:ThClaimed), xuat phat $($script:ThStarted); " + ($script:ThLines -join ' | '))
     try { Exit-ThamHiem } catch { Log "Ve sanh loi (bo qua): $($_.Exception.Message)" }
 }

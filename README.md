@@ -93,7 +93,7 @@ run.bat -Account <tên tài khoản 7Road> [tuỳ chọn]
 | `-LoginOnly` | Chỉ đăng nhập tới sảnh chính rồi dừng, không vào nông trại, không gửi Telegram |
 | `-SkipLaunch` | Thiết bị đã mở và đang đứng trong nông trại: bỏ qua bước mở app/đăng nhập |
 | `-TestTelegram` | Chỉ gửi thử ảnh có sẵn trong `logs\` lên Telegram rồi thoát, không mở máy ảo |
-| `-ViewOnly` | Chỉ vào nông trại chụp ảnh ruộng gửi Telegram: không thu hoạch, không gieo, không đổi lịch (lệnh bot `/xemruong`) |
+| `-ViewOnly` | Nhận rương Thánh vật rồi vào nông trại chụp ảnh ruộng gửi Telegram: không thu hoạch, không gieo, không đổi lịch (lệnh bot `/xemruong`) |
 | `-Manual` | Chạy tay: vẫn chạy khi đang `/tamdung`. `run.bat` và lệnh bot `/chay` **tự thêm**, không cần gõ |
 
 Ví dụ:
@@ -176,7 +176,7 @@ Nhờ vậy khoai được thu gần như **đúng lúc chín** và gieo lại n
 - Tin Telegram nào gửi không được (mất mạng giữa chừng) được lưu ở `logs\telegram_cho_gui\` và **gửi bù** ở lần chạy sau có mạng, đầu tin ghi `📨 Tin gửi trễ (lúc đó mất mạng)`.
 
 - Giờ đã hẹn có trong tin Telegram, dòng `⏰ Đã tự lập lịch lần tới: …`. Xem tất cả lịch: `/lich` trên Telegram.
-- **Dừng chuỗi** của 1 tài khoản: `/huylich <tài khoản>`. Lệnh này xoá lịch và tạo file `state\<tài khoản>.off`. **Bật lại**: `/chay <tài khoản>`, lệnh này đồng thời xoá đếm lỗi. Nếu không dùng bot: xoá file `.off` rồi chạy tay 1 lần.
+- **Dừng chuỗi** của 1 tài khoản: `/huylich <tài khoản>`. Lệnh này xoá **cả lịch nông trại lẫn lịch thám hiểm** của tài khoản đó và tạo file `state\<tài khoản>.off` + `state\<tài khoản>.tham_hiem.off` (lượt đang chạy xong cũng không hẹn lượt sau, không đặt lịch dự phòng). Tài khoản khác không bị ảnh hưởng. **Bật lại**: `/chay <tài khoản>` cho nông trại, `/thamhiem <tài khoản>` cho thám hiểm (đồng thời xoá đếm lỗi). Nếu không dùng bot: xoá file `.off` rồi chạy tay 1 lần.
 - Giờ chín của lần gieo gần nhất lưu ở `state\<tài khoản>.json`.
 
 **Gieo nhiều loại hạt** (thêm 19/11):
@@ -238,23 +238,24 @@ Toàn bộ nội dung được **gộp vào 1 chú thích**, gắn vào ảnh đ
 Ví dụ tin nhắn khi thu hoạch và trồng xong:
 
 ```
-🚜 DDTank [tomcat12345] 17/11 23:06
-1/2 Sau khi thu hoạch: 10 ô
-2/2 Sau khi trồng 🥔 khoai tây: OK – thấy cây mới ở 10/10 ô
+🚜 DDTank [akaka] 20/11 08:48
+🎁 Thánh vật: đã nhận rương Đạt được
+🌱 Sau khi trồng 🥔 khoai tây: OK – thấy cây mới ở 10/10 ô
 
-✅ Xong việc lúc: 23:06 17/11/2026
-🌾 Thu hoạch tiếp theo (cây chín): 07:05 18/11/2026
-⏰ Đã tự lập lịch lần tới: 07:00 18/11/2026 (cây chín 07:05)
+✅ Xong việc lúc: 08:48 20/11/2026
+🧺 Đã thu hoạch: 10 ô (đã chờ cây chín 1 phút)
+🌾 Thu hoạch tiếp theo (cây chín): 16:48 20/11/2026
+⏰ Đã tự lập lịch lần tới: 16:43 20/11/2026 (cây chín 16:48)
 ```
 
 Các dạng tin khác:
 
 | Trường hợp | Dòng nội dung |
 |---|---|
-| Ruộng trống | `1/2 Ruộng trống – không có cây để thu hoạch, trồng mới luôn` |
-| Trồng thiếu ô | `2/2 Sau khi trồng 🥔 khoai tây: ⚠️ CẢNH BÁO – chỉ thấy cây mới ở 6/10 ô` (đếm mầm khoai hoặc đồng hồ trên ô, ô bị nhân vật che có thể không đếm được) |
-| Gieo hạt khác (`/chay akaka bapcai`) | `2/2 Sau khi trồng 🥬 bắp cải: OK – thấy cây mới ở 9/10 ô`, có thể thêm `⚠️ Hết hạt 🥬 bắp cải → gieo 🥔 khoai tây thay` hoặc `ℹ️ Hạt … không đủ cả ruộng → gieo thêm 🥔 khoai tây vào ô còn trống` |
-| Chờ cây chín rồi thu | `1/2 Sau khi thu hoạch: 10 ô (đã chờ cây chín 4 phút)` |
+| Ruộng trống | `🧺 Ruộng trống – không có cây để thu hoạch, trồng mới luôn` (chữ, không có ảnh) |
+| Trồng thiếu ô | `🌱 Sau khi trồng 🥔 khoai tây: ⚠️ CẢNH BÁO – chỉ thấy cây mới ở 6/10 ô` (đếm mầm khoai hoặc đồng hồ trên ô, ô bị nhân vật che có thể không đếm được) |
+| Gieo hạt khác (`/chay akaka bapcai`) | `🌱 Sau khi trồng 🥬 bắp cải: OK – thấy cây mới ở 9/10 ô`, có thể thêm `⚠️ Hết hạt 🥬 bắp cải → gieo 🥔 khoai tây thay` hoặc `ℹ️ Hạt … không đủ cả ruộng → gieo thêm 🥔 khoai tây vào ô còn trống` |
+| Chờ cây chín rồi thu | `🧺 Đã thu hoạch: 10 ô (đã chờ cây chín 4 phút)`. Từ 20/11 **không gửi ảnh sau thu hoạch** nữa, chỉ ghi chữ; số ô cộng dồn cả các lần làm lại bước / chạy lại cả lượt |
 | Chờ đủ 12 phút cây vẫn chưa chín | `🌱 Chưa có ô chín (cây đang lớn) (đã chờ 12 phút) – không thu hoạch, không gieo` và `🌾 Cây chín lúc: … (theo đồng hồ trên ô đất)` hoặc `🌾 Thu hoạch tiếp theo: chưa xác định (lần này không gieo)` |
 | Có lỗi | `❌ LỖI: Không tìm thấy hạt khoai tây` (lỗi hiếm gặp từ Windows/ADB có thể là tiếng Anh) |
 | Có mạng lại sau khi mất mạng | `📵 Mất mạng từ … đến … – đã thử lại N lần (không tính là lỗi)` |
@@ -363,7 +364,7 @@ Bot tự bật mỗi lần đăng nhập Windows, bị lỗi thì tự khởi đ
 | Lệnh | Tác dụng |
 |---|---|
 | `/chay <tài khoản> [loại hạt]` | Chạy ngay thu hoạch + trồng, vd `/chay akaka`, `/chay akaka bapcai`, `/chay akaka thanh long`. Ghi hạt = **lưu cố định** cho tài khoản (các lượt tự động sau cũng gieo loại đó), `/chay akaka khoai` để về khoai. Không ghi hạt = hạt đã lưu, chưa lưu thì khoai (mục 4, *Gieo nhiều loại hạt*). Xong có ảnh gửi về như bình thường. Chạy được cả khi đang `/tamdung` |
-| `/xemruong <tài khoản>` | Vào game chụp ruộng gửi về (~3–4 phút): có ô chín chưa (🖐️ bàn tay), cây đang lớn mấy ô, ruộng trống, **bao nhiêu ô cần tưới 💧 / có sâu 🐛**. Có giọt nước / con sâu thì **bấm 1 cái để tưới cây + bắt sâu cả ruộng** (game xử lý cả ruộng chỉ với 1 lần bấm) và gửi thêm ảnh sau khi chăm sóc. **Không thu hoạch, không gieo, không đổi lịch** |
+| `/xemruong <tài khoản>` | Vào game **nhận rương Thánh vật** (từ 20/11) rồi chụp ruộng gửi về (~3–4 phút): có ô chín chưa (🖐️ bàn tay), cây đang lớn mấy ô, ruộng trống, **bao nhiêu ô cần tưới 💧 / có sâu 🐛**. Có giọt nước / con sâu thì **bấm 1 cái để tưới cây + bắt sâu cả ruộng** (game xử lý cả ruộng chỉ với 1 lần bấm) và gửi thêm ảnh sau khi chăm sóc. **Không thu hoạch, không gieo, không đổi lịch** |
 | `/trangthai` | Script có đang chạy không (tài khoản, từ lúc nào), thiết bị bật/tắt, lần chạy tự động tới, 6 dòng log cuối |
 | `/maytinh` | Sức khoẻ máy: RAM trống + 3 chương trình tốn RAM nhất, CPU, ổ đĩa, thời gian máy đã chạy, số lần tắt bất thường / màn hình xanh 7 ngày qua (kèm mã lỗi), Wi-Fi + số lần rớt 24 giờ, VPN, MuMu, bot, tự đăng nhập bật/tắt |
 | `/thongke [số ngày]` | Thống kê theo tài khoản (mặc định 7 ngày, tối đa 60): số lượt, lượt thu hoạch + tổng ô, lượt gieo, chờ cây chín, cây chưa chín, lỗi / mất mạng / bảo trì / tạm dừng, lỗi gần nhất. Lấy từ `state\lich_su.jsonl` |
@@ -372,7 +373,7 @@ Bot tự bật mỗi lần đăng nhập Windows, bị lỗi thì tự khởi đ
 | `/anh` | Chụp màn hình thiết bị `auto` gửi về (chỉ khi thiết bị đang bật) |
 | `/log` | 40 dòng cuối log lần chạy gần nhất |
 | `/lich` | Xem tất cả lịch: lịch cố định + lịch tự lập của từng tài khoản, tài khoản nào đang tắt tự lập lịch |
-| `/huylich <tài khoản>` | Dừng tự lập lịch của tài khoản đó (xoá lịch đã hẹn). Bật lại bằng `/chay <tài khoản>` |
+| `/huylich <tài khoản>` | Xoá lịch và tắt tự lập lịch của tài khoản đó, **cả nông trại lẫn thám hiểm**, cho tới khi bật lại: `/chay <tài khoản>` (nông trại), `/thamhiem <tài khoản>` (thám hiểm) |
 | `/datlich <giờ> <chu kỳ> <tài khoản>` | Cài lịch cố định, giống `lap_lich.bat` (mục 4, cách 2). vd `/datlich 23:00 8:05 akaka` |
 | `/xoalich` | Xoá lịch cố định |
 | `/dung` | Dừng lượt đang chạy, tắt app DDTank và thiết bị `auto`. Lượt bị dừng không gửi ảnh |
@@ -783,7 +784,7 @@ Danh sách đề xuất ngày 18/11/2026. Cập nhật trạng thái mỗi khi l
 | 8 | Đọc số hạt khoai còn lại, báo khi sắp hết | ⬜ | Cần test với game thật |
 | 9 | Tự mua hạt khi sắp hết | ⬜ | Tiêu tiền trong game – cần cẩn thận |
 | 10 | Gieo nhiều loại hạt, giờ chín riêng từng loại | ✅ | 19/11: `/chay <tk> <hạt>` / `-Seed`, 8 loại có mẫu; giờ chín đọc từ đồng hồ trên ô đất. Test thật (tài khoản 2) gieo bắp cải 10/10 ô, đọc đồng hồ 00:59:41 → hẹn đúng 10:43 (mục 4) |
-| 11 | Bắt sâu / tưới nước ruộng của mình | 🟡 | Trong `/xemruong` (19/11): nhận diện 💧/🐛 đúng 7/7 + 3/3 trên ảnh thật; bấm 1 biểu tượng là cả ruộng được tưới + bắt sâu (thử tay trên game thật). Mỗi vụ (gieo → thu hoạch) chỉ có **2 lần** cần tưới / bắt sâu. Chưa gặp lượt `/xemruong` thật lúc ruộng đang có biểu tượng. Lượt thu hoạch tự động chưa tưới |
+| 11 | Bắt sâu / tưới nước ruộng của mình | ✅ | Trong `/xemruong` (19/11): nhận diện 💧/🐛 đúng 7/7 + 3/3 trên ảnh thật; bấm 1 biểu tượng là cả ruộng được tưới + bắt sâu (thử tay trên game thật). Mỗi vụ (gieo → thu hoạch) chỉ có **2 lần** cần tưới / bắt sâu. Lượt `/xemruong` thật 20/11 09:26: thấy 4 ô cần tưới 💧 + 4 ô có sâu 🐛, bấm 1 lần → hết biểu tượng cả ruộng. Lượt thu hoạch tự động chưa tưới |
 | 12 | Nhiều tài khoản: hàng đợi chạy lần lượt, `/chay tatca` | ⬜ | Hiện mỗi tài khoản đã có lịch riêng, trùng giờ thì chờ 10 phút |
 | 23 | Thao tác giống người: bấm bằng ghi thẳng sự kiện chạm + ngẫu nhiên hoá | ✅ | Lượt thật 18/11 16:27: đăng nhập, thu hoạch 10 ô, gieo 10/10 với cách bấm mới (mục 8) |
 | 24 | Chuyển vuốt / kéo hạt sang ghi thẳng sự kiện chạm | ⬜ | Cần test thao tác kéo khi thiết bị rảnh |
@@ -956,7 +957,7 @@ Nhật ký các lỗi xảy ra khi script chạy thật trên máy (không tính
 
 | 19/11 14:01 (test giờ bảo trì) | Mở game lúc máy chủ bảo trì: game hiện popup *"Máy chủ đang được bảo trì…"*; script cũ không nhận ra → sẽ chờ 3 phút × 3 lần rồi báo *"Không vào được sảnh chính"*, tính là lỗi (ngoài khung giờ cố định). Cùng lúc RAM còn ~1 GB, chụp màn hình treo 15 giây 1 lần | Script chỉ biết khung giờ bảo trì cố định, chưa có ảnh mẫu màn hình bảo trì | Thêm ảnh mẫu `popup_baotri.png`; `Enter-Game` thấy popup thì dừng lượt, kết quả `maintenance`, hẹn lại 30 phút, Telegram kèm ảnh. Test lại 14:10–14:11 trên game đang bảo trì: nhận ra sau 2 giây | ✅ |
 | 19/11 15:02 (test sau bảo trì) | Hết bảo trì, game **tải bản cập nhật 90 MB** (*"vui lòng không thoát game"*); script không nhận ra → chờ 3 phút không thấy sảnh, coi là lỗi, **tắt app mở lại** 2 lần (15:06, 15:09) làm đứt quá trình tải. Mạng tải chậm (~1–5 MB/phút) | Script không biết màn hình cập nhật; bước *vào game* chỉ chờ 3 phút | Ảnh mẫu `update_screen.png`; `Enter-Game` thấy màn hình cập nhật thì chờ, gia hạn, không tắt app (tối đa 20 phút), Telegram ghi số phút. Cập nhật xong game tự thoát ra màn hình chính → mở lại app ngay. Đồng thời `/chay` trong khung giờ bảo trì nay vẫn vào game (bảo trì có thể xong sớm). **Test lại 15:14–15:26:** nhận ra màn hình cập nhật, chờ không tắt app; sau đó `/chay` thu hoạch + gieo bắp cải 10/10 bình thường | ✅ |
-| 19/11 15:24 | Telegram báo *"Sau khi thu hoạch: 7 ô"* nhưng thật ra đã thu đủ 10 ô | Chụp màn hình treo giữa lúc thu hoạch (RAM còn 1,1 GB) → bước *thu hoạch* làm lại từ đầu, số ô đã thu ở lần trước (3 ô) không được cộng vào | Chưa sửa (bạn chọn để sau): cộng dồn số ô đã thu qua các lần làm lại bước | ❌ |
+| 19/11 15:24 | Telegram báo *"Sau khi thu hoạch: 7 ô"* nhưng thật ra đã thu đủ 10 ô | Chụp màn hình treo giữa lúc thu hoạch (RAM còn 1,1 GB) → bước *thu hoạch* làm lại từ đầu, số ô đã thu ở lần trước (3 ô) không được cộng vào | Đếm tổng số ô ở mức cả lượt (`$script:HarvestTotal`, cộng từng lần bấm, kể cả lần bị lỗi giữa chừng). Gặp lại 20/11 08:44 (thu 1 ô thì treo, khởi động lại thiết bị, báo 9 thay vì 10) → sửa 20/11 | 🟡 |
 ---
 
 ## 14. Thú cưỡi thám hiểm (tự lập lịch như nông trại)
@@ -976,15 +977,15 @@ Phần riêng nằm trong thư mục `tham_hiem\`. Ghi chú kỹ thuật, toạ 
    - **Chưa có** → bấm **Xuất phát**. Game tự giữ khu thám hiểm và thú cưỡi cũ của đội.
    - **Đang thám hiểm** → không bấm gì.
 3. Đọc giờ còn lại trên 3 tab rồi về sảnh. Telegram nhận ảnh quà của từng đội, ảnh 3 tổ đội và giờ xong của từng đội.
-4. **Tự lập lịch** lần sau lúc tổ đội xong sớm nhất + 3 phút. Lịch tên `DDTank Farm - <tk> - tham hiem`, riêng với lịch nông trại.
+4. **Tự lập lịch giống nông trại:** hẹn **trước 5 phút** lúc tổ đội xong sớm nhất (`$ThDelayMin = -5`). Tới nơi, tổ đội nào còn ≤ 12 phút là xong (`$ThWaitMin`) thì **ngồi chờ** ở màn Thám hiểm, xong là nhận thưởng + cho đi tiếp luôn (đồng hồ lệch thì kiểm tra lại 20 giây/lần, tối đa 3 phút). Đội còn lâu hơn thì không chờ, hẹn lại theo đội đó. Telegram ghi `⏳ Đã chờ tổ đội xong N phút`. Lịch tên `DDTank Farm - <tk> - tham hiem`, riêng với lịch nông trại.
 
 ⚠️ Nút **Nhận / Xuất phát / Gọi về nằm cùng một chỗ**. Bot so cả 3 nút ngay trước mỗi lần bấm và **không bao giờ bấm Gọi về**, vì Gọi về làm mất hết chiến lợi phẩm. Nếu thấy hộp xác nhận Gọi về, bot bấm **Hủy bỏ**.
 
 ### Chạy
-- Telegram: `/thamhiem akata99`. Xong lượt đầu, bot tự hẹn các lượt sau.
-- Tay: `powershell -NoProfile -ExecutionPolicy Bypass -File ddtank_farm.ps1 -Account akata99 -Job tham_hiem -Manual`
+- Telegram: `/thamhiem akaka`. Xong lượt đầu, bot tự hẹn các lượt sau.
+- Tay: `powershell -NoProfile -ExecutionPolicy Bypass -File ddtank_farm.ps1 -Account akaka -Job tham_hiem -Manual`
 - `/lich`, `/trangthai` hiện lịch thám hiểm với dấu 🐎. `/thongke` có dòng thám hiểm riêng.
-- Tắt tự lập lịch thám hiểm: xoá task `DDTank Farm - akata99 - tham hiem`, hoặc tạo file `state\akata99.tham_hiem.off`.
+- Tắt tự lập lịch thám hiểm: xoá task `DDTank Farm - akaka - tham hiem`, hoặc tạo file `state\akaka.tham_hiem.off`.
 
 ### Trạng thái (19/11)
 - Đã khám phá và nhận tay 3 tổ đội lúc 22:50; các đội xong khoảng 10:50 ngày 20/11.

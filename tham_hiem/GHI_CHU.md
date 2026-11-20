@@ -1,4 +1,4 @@
-# Thú cưỡi thám hiểm: ghi chú khám phá (19/11/2026)
+﻿# Thú cưỡi thám hiểm: ghi chú khám phá (19/11/2026)
 
 Bot khám phá bằng cách bấm từng bước rồi chụp màn hình bằng `adb exec-out screencap -p`, ảnh 1600x900. Ảnh lưu trong `ghi_hinh/` (không đưa lên git).
 
@@ -51,13 +51,13 @@ Bot khám phá bằng cách bấm từng bước rồi chụp màn hình bằng 
 - Chấm đỏ ở mục Thú cưỡi Thám hiểm **vẫn còn sau khi đã nhận hết**, nên không dùng chấm đỏ để biết có thưởng hay không.
 
 ## Đã làm (19/11 23:15)
-- **Chạy:** `ddtank_farm.ps1 -Account akata99 -Job tham_hiem`, hoặc lệnh bot `/thamhiem akata99`. Thám hiểm dùng chung toàn bộ phần của nông trại:
+- **Chạy:** `ddtank_farm.ps1 -Account akaka -Job tham_hiem`, hoặc lệnh bot `/thamhiem akaka`. Thám hiểm dùng chung toàn bộ phần của nông trại:
   - bật máy ảo, đăng nhập đúng tài khoản;
   - khoá thiết bị và xếp hàng khi trùng lượt nông trại;
   - né giờ bảo trì, mất mạng, `/tamdung`;
   - Telegram có hàng đợi gửi bù;
   - ghi `lich_su.jsonl` (`job = tham_hiem`, `nhan`, `di`).
-- **Lịch:** task riêng `DDTank Farm - <tk> - tham hiem`, hẹn lúc tổ đội xong sớm nhất + 3 phút. Trạng thái nằm ở `state\<tk>.tham_hiem.json` / `.off` / `.offline`, không đè lên trạng thái nông trại.
+- **Lịch:** task riêng `DDTank Farm - <tk> - tham hiem`, hẹn **trước 5 phút** lúc tổ đội xong sớm nhất rồi **ngồi chờ** đội còn ≤ 12 phút là xong, xong là nhận + cho đi tiếp luôn (giống nông trại chờ cây chín; sửa 20/11 sau lượt thử 08:34: trước đây hẹn sau 3 phút, không chờ). Trạng thái nằm ở `state\<tk>.tham_hiem.json` / `.off` / `.offline`, không đè lên trạng thái nông trại.
 - **Phần riêng của thám hiểm:**
   - `cong_cu/tham_hiem.ps1`: vào màn, xử lý 3 tổ đội, đọc giờ, về sảnh.
   - `cong_cu/TabTimer.cs`: đọc đồng hồ trên tab.

@@ -30,7 +30,7 @@ param(
     [switch]$LoginOnly,    # chi dang nhap toi sanh chinh roi dung (de test)
     [switch]$TestTelegram, # chi gui thu 2 anh gan nhat trong logs\ len Telegram roi thoat
     [switch]$Manual,       # chay tay (run.bat, /chay): van chay khi dang /tamdung
-    [switch]$ViewOnly,     # chi vao nong trai chup anh ruong, khong thu hoach / gieo / lap lich (/xemruong)
+    [switch]$ViewOnly,     # chi vao nong trai chup anh ruong, khong thu hoach / gieo / lap lich (/xemruong); van nhan ruong Thanh vat
     [switch]$StayOpen      # (phat trien) xong khong dong app, khong tat thiet bi - de quan sat / thu tiep bang tay
 )
 
@@ -497,6 +497,14 @@ function Add-Photo($caption) {
 # $nextLine: ket qua tu lap lich (Plan-NextRun); khong co thi lay lich co dinh "DDTank Farm"
 function Build-Summary($sowTime, $nextLine) {
     $lines = @("✅ Xong việc lúc: $(Get-Date -Format 'HH:mm dd/MM/yyyy')")
+    # Nong trai: so o da thu (cong don ca cac lan lam lai buoc / chay lai ca luot) + phut cho cay chin (20/11: bo anh 1/2, chi bao chu)
+    if (-not $IsTH -and -not $ViewOnly) {
+        if ($script:HarvestTotal -gt 0) {
+            $lines += "🧺 Đã thu hoạch: $($script:HarvestTotal) ô$(if ($script:WaitedRipeMin) { " (đã chờ cây chín $($script:WaitedRipeMin) phút)" })"
+        } elseif ($script:FieldEmpty) {
+            $lines += "🧺 Ruộng trống – không có cây để thu hoạch, trồng mới luôn"
+        }
+    }
     if ($IsTH) {
         # Thu cuoi tham hiem: tung to doi (nhan thuong / xuat phat / dang chay, gio xong)
         if ($script:ThLines.Count) { $lines += $script:ThLines }
@@ -516,7 +524,8 @@ function Build-Summary($sowTime, $nextLine) {
     if (-not $IsTH -and -not $ViewOnly -and $Account -and $script:SeedKey -and $script:SeedKey -ne $DefaultSeed) {
         $lines += "🌱 Hạt cố định của $($Account): $(Seed-Text $script:SeedKey) (về khoai: /chay $Account khoai)"
     }
-    if ($script:ThanhVatNote) { $lines += $script:ThanhVatNote }
+    # anh Thanh vat da co chu thich y het -> khong ghi lai lan 2
+    if ($script:ThanhVatNote -and -not @($script:Photos | Where-Object { $_.Caption -eq $script:ThanhVatNote }).Count) { $lines += $script:ThanhVatNote }
     if ($script:QueuedMin) { $lines += "⏳ Trùng lượt đang chạy → đã xếp hàng chờ $($script:QueuedMin) phút" }
     if ($script:UpdateStart) {
         $ue = if ($script:UpdateEnd) { $script:UpdateEnd } else { Get-Date }
@@ -1046,7 +1055,7 @@ function Harvest-All {
         } else {
             $t = $row | Sort-Object U -Descending | Select-Object -First 1  # hang truoc: phai -> trai
         }
-        $taps++
+        $taps++; $script:HarvestTotal++
         Log ("Thu hoach o ({0},{1}) - con {2} o chin, {3} hang" -f $t.X, $t.Y, $hands.Count, $rows.Count)
         Step ("thu_hoach_{0}_x{1}_y{2}" -f $taps, $t.X, $t.Y)
         Tap $t.X $t.Y
@@ -1318,10 +1327,10 @@ function Verify-Sown($sign) {
     # nhan vat / ten nhan vat co the che 1-2 o
     if ($seen -ge ($PlotCount - 2)) {
         Log "KIEM TRA OK: thay cay moi o $seen/$PlotCount o (mam $found, dong ho $timerN)"
-        Add-Photo (Caption "2/2 Sau khi trồng $($what): OK – thấy cây mới ở $seen/$PlotCount ô")
+        Add-Photo (Caption "🌱 Sau khi trồng $($what): OK – thấy cây mới ở $seen/$PlotCount ô")
     } else {
         Log "CANH BAO: chi thay cay moi o $seen/$PlotCount o (mam $found, dong ho $timerN) - xem anh ket_qua"
-        Add-Photo (Caption "2/2 Sau khi trồng $($what): ⚠️ CẢNH BÁO – chỉ thấy cây mới ở $seen/$PlotCount ô")
+        Add-Photo (Caption "🌱 Sau khi trồng $($what): ⚠️ CẢNH BÁO – chỉ thấy cây mới ở $seen/$PlotCount ô")
     }
 }
 
@@ -1426,7 +1435,7 @@ function Plan-NextRun([string]$outcome) {
             $retries = 0
             if ($script:ThNext) {
                 $ripe = $script:ThNext
-                $at = $script:ThNext.AddMinutes($ThDelayMin); $why = "tổ đội xong sớm nhất lúc $($script:ThNext.ToString('HH:mm dd/MM'))"
+                $at = $script:ThNext.AddMinutes($ThDelayMin); $why = "tổ đội xong sớm nhất lúc $($script:ThNext.ToString('HH:mm dd/MM'))$(if ($ThDelayMin -lt 0) { ", vào trước $(-$ThDelayMin) phút rồi chờ" })"
             } else {
                 $at = $now.AddMinutes($ThRetryMin); $why = "không đọc được giờ tổ đội xong, xem lại sau $ThRetryMin phút"
             }
@@ -1648,7 +1657,7 @@ if ($TestTelegram) {
             if ($f) { break }
         }
         if (-not $f) { continue }
-        if ($f.Name -like "*ket_qua*") { $sow = $f.LastWriteTime; $label = "2/2 Sau khi trồng" } else { $label = "1/2 Sau khi thu hoạch" }
+        if ($f.Name -like "*ket_qua*") { $sow = $f.LastWriteTime; $label = "🌱 Sau khi trồng" } else { $label = "Sau khi thu hoạch" }
         $test += @{ Path = $f.FullName; Caption = (Caption "[GỬI THỬ] $label ($($f.Name))") }
     }
     if (-not $test.Count) { Log "Chua co anh nao trong logs\ de gui thu"; exit 1 }
@@ -1705,6 +1714,7 @@ if (-not $gotMutex) {
 $exitCode = 0
 $script:StartTime = Get-Date
 $harvested = 0
+$script:HarvestTotal = 0     # tong so o da thu ca luot (Harvest-All cong dan tung lan bam, ke ca lan bi loi giua chung)
 try {
     Log "===== BAT DAU (tai khoan: $(if ($Account) { $Account } else { '-' })$(if ($IsTH) { ', thu cuoi tham hiem' } elseif ($ViewOnly) { ', chi xem ruong' } else { ", hat: $($script:SeedKey) ($($script:SeedFrom))" })$(if ($Manual) { ', chay tay' })) ====="
     try { Clean-OldLogs } catch { Log "Don log loi: $($_.Exception.Message)" }
@@ -1762,7 +1772,8 @@ try {
     }
     # Thanh vat: nhan ruong "Dat duoc" roi ve sanh (1 lan moi luot, ke ca khi ca luot chay lai).
     # Het lan thu -> bo qua (ghi chu Telegram), dua game ve sanh (mo lai app neu can) roi van thu hoach binh thuong.
-    if ($ThanhVat -and -not $SkipLaunch -and -not $ViewOnly -and -not $script:ThanhVatDone) {
+    # 20/11: /xemruong (-ViewOnly) cung nhan ruong Thanh vat
+    if ($ThanhVat -and -not $SkipLaunch -and -not $script:ThanhVatDone) {
         $script:ThanhVatDone = $true
         try { Retry-Step 'thanh_vat' 'Thánh vật' { Invoke-ThanhVat } { Close-Popups; try { TvBackToLobby } catch {} } }
         catch {
@@ -1786,7 +1797,8 @@ try {
         return
     }
     # lan thu lai: cong don so o da thu hoach o lan truoc (ruong da thu hoach -> lan nay 0 o chin nhung van phai gieo)
-    $harvested = $harvestedBefore + (Retry-Step 'thu_hoach' 'thu hoạch' { Harvest-All })
+    [void](Retry-Step 'thu_hoach' 'thu hoạch' { Harvest-All })
+    $harvested = $script:HarvestTotal    # cong don ca lan lam lai buoc / chay lai ca luot (19/11 15:24, 20/11 08:44: bao thieu 3 va 1 o)
     $script:FieldEmpty = $false
     if ($harvested -eq 0) {
         # Khong co o chin. Ruong TRONG that (khong o nao co thanh thoi gian / mam cay) -> gieo luon, khong cho.
@@ -1800,19 +1812,12 @@ try {
         if ($s -and $planted -eq 0) {
             $script:FieldEmpty = $true
             Log "Ruong trong (khong o nao co cay) -> trong moi luon, khong cho"
-            Save-Shot "ruong_trong"
-            Add-Photo (Caption "1/2 Ruộng trống – không có cây để thu hoạch, trồng mới luôn")
         } else {
             if ($planted -gt 0) { Log "Cay dang lon o $planted/$PlotCount o (thay thanh thoi gian / mam cay)" }
-            if (Wait-Ripe) { $harvested = Harvest-All }
+            if (Wait-Ripe) { [void](Harvest-All); $harvested = $script:HarvestTotal }
         }
     }
-    if ($harvested -gt $harvestedBefore) {    # chay lai ca luot ma lan nay khong thu them o nao -> khong gui lai anh
-        Start-Sleep 1
-        Save-Shot "sau_thu_hoach"
-        $waitNote = if ($script:WaitedRipeMin) { " (đã chờ cây chín $($script:WaitedRipeMin) phút)" } else { "" }
-        Add-Photo (Caption "1/2 Sau khi thu hoạch: $harvested ô$waitNote")
-    }
+    # 20/11: bo anh "1/2 Sau khi thu hoach" - so o + phut cho cay chin ghi bang chu trong tom tat (Build-Summary)
     $sign = Retry-Step 'gieo_hat' 'gieo hạt' { Sow-Seeds $harvested }
     if ($sign) { Verify-Sown $sign }
     $script:Outcome = if ($script:SowTime) { 'sown' } else { 'growing' }
@@ -1825,7 +1830,7 @@ try {
             $msg = $_.Exception.Message
             # Mot buoc da het $StepRetries lan thu (hoac loi khong thu lai duoc) -> khoi dong lai thiet bi, chay lai ca luot
             if ($SkipLaunch -or $attempt -gt $InRunRetries -or -not (Can-Retry $msg)) { throw }
-            if ($harvested -gt $harvestedBefore) { $harvestedBefore = $harvested }
+            $harvested = $script:HarvestTotal; $harvestedBefore = $harvested
             try { Save-Shot "loi_ca_luot_$attempt" } catch {}
             Log "LOI ca luot (lan $attempt/$($InRunRetries + 1)): $msg -> khoi dong lai thiet bi, chay lai tu dau"
             $script:RetryNotes += "🔁 Lượt lỗi lần ${attempt}: $(Short-Err $msg) → đã khởi động lại thiết bị, chạy lại từ đầu"
@@ -1893,6 +1898,7 @@ finally {
             Send-Telegram $script:Photos (Build-Summary $script:SowTime $nextLine)
         }
     }
+    $harvested = [math]::Max([int]$harvested, [int]$script:HarvestTotal)
     if (-not $LoginOnly -and -not $SkipLaunch) { Add-History }
 }
 exit $exitCode
