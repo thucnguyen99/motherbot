@@ -415,7 +415,7 @@ AI **không chạy được gì ngoài các lệnh `/` sẵn có**, và vẫn ch
 | Trường trong `ai.json` | Mặc định | Ý nghĩa |
 |---|---|---|
 | `gemini_api_key` | – | API key Gemini |
-| `model` | `gemini-flash-latest` | Model Gemini. Google đổi tên model thì sửa ở đây (bot báo *"không có model …"*) |
+| `model` | `gemini-2.5-flash` | Model Gemini. Google đổi tên model thì sửa ở đây (bot báo *"không có model …"*). Đo 20/11: `gemini-2.5-flash` ~1 giây; `gemini-flash-latest` treo >90 giây (không dùng); `gemini-3.5-flash-lite` / `gemini-flash-lite-latest` 8–10 giây |
 | `bat` | `true` | `false` = tắt AI mà không xoá key |
 
 Thử AI hiểu 1 câu thế nào (chỉ in ra màn hình, **không gửi Telegram, không chạy lệnh**):

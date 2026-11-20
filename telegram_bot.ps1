@@ -544,7 +544,7 @@ $AiFile = Join-Path $Root "ai.json"
 if (Test-Path $AiFile) {
     try {
         $ac = Get-Content $AiFile -Raw -Encoding UTF8 | ConvertFrom-Json
-        $aiModel = if ($ac.model) { ([string]$ac.model).Trim() } else { 'gemini-flash-latest' }
+        $aiModel = if ($ac.model) { ([string]$ac.model).Trim() } else { 'gemini-2.5-flash' }   # 20/11: gemini-flash-latest treo >90s, 2.5-flash ~1s
         if ($ac.bat -eq $false) { BLog "AI: tat (ai.json: bat = false)" }
         elseif (-not $ac.gemini_api_key -or [string]$ac.gemini_api_key -match 'DIEN_') { BLog "AI: ai.json chua dien gemini_api_key -> tat AI" }
         elseif ($aiModel -notmatch '^[A-Za-z0-9.\-]{3,60}$') { BLog "AI: ten model trong ai.json khong hop le -> tat AI" }
@@ -587,6 +587,8 @@ Các lệnh được phép (ten phải là một trong các tên này):
 Tài khoản đã biết: $accTxt. Người dùng hay gõ tắt / sai chính tả tên tài khoản: chọn tài khoản đã biết giống nhất. Không đoán chắc được tài khoản nào thì không đưa lệnh đó, hỏi lại trong tra_loi.
 Loại hạt (hat dùng đúng key): $seeds.
 Tối đa 3 lệnh, đúng thứ tự người dùng nói. Bỏ trống trường không dùng.
+Phân biệt: "đừng chạy / thôi chạy / bỏ lịch / tắt tự động" cho 1 tài khoản là huylich tk. dung chỉ dùng khi muốn dừng NGAY lượt đang chạy / tắt máy giả lập (không theo tài khoản).
+Hỏi "cây chín chưa / khi nào chạy tiếp / lượt sau lúc mấy giờ" là lich (lịch tự lập theo giờ cây chín). Hỏi "đang chạy không / đang làm gì" là trangthai.
 Bây giờ là $now. Đổi thời gian sang số giờ khi cần, ví dụ "tạm dừng tới 20h" lúc 18:30 thì so = "1.5".
 tra_loi: 1 câu ngắn tiếng Việt. Nếu tin nhắn không phải yêu cầu một lệnh ở trên (hỏi chuyện, hỏi thông tin) thì lenh = [] và tra_loi gợi ý lệnh gần nhất có thể giúp. Không bịa thông tin về trạng thái, lịch, giờ cây chín.
 "@
@@ -613,8 +615,8 @@ function Invoke-Gemini([string]$text) {
             if (-not $out) { throw "Gemini trả lời rỗng" }
             return $out
         }
-        # model khong nhan thinkingConfig -> thu lai 1 lan khong co
-        if ($code -eq 400 -and $try -eq 1 -and $txt -match 'thinking') { $gen.Remove('thinkingConfig'); continue }
+        # model khong nhan thinkingConfig (model 3.x bao 400 "invalid argument", khong noi ro) -> thu lai 1 lan khong co
+        if ($code -eq 400 -and $try -eq 1 -and $gen.ContainsKey('thinkingConfig') -and $txt -notmatch 'API_KEY') { $gen.Remove('thinkingConfig'); continue }
         $detail = try { [string](($txt | ConvertFrom-Json).error.message) } catch { '' }
         BLog "AI loi HTTP ${code}: $detail"
         $why = if ($code -eq 429) { "hết lượt miễn phí, thử lại sau ít phút" }
