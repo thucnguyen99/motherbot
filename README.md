@@ -393,6 +393,45 @@ Thử 1 lệnh không cần mở Telegram (câu trả lời vẫn gửi về Tel
 powershell -ExecutionPolicy Bypass -File telegram_bot.ps1 -Thu "/trangthai"
 ```
 
+### Nhắn tin bình thường cho bot (AI Gemini, tuỳ chọn – từ 20/11)
+
+Bật AI thì có thể nhắn kiểu nói chuyện, không cần nhớ lệnh: *"chạy nông trại cho akaka"*, *"akaka gieo thanh long"*, *"tạm dừng tới 8 giờ tối"*, *"xem lịch với thống kê 30 ngày"*, *"thôi đừng chạy yuran nữa"*.
+
+**Cách hoạt động:**
+1. Tin **có `/`** chạy thẳng như cũ, **không gọi Gemini**. Gemini lỗi / hết lượt / sai key thì các lệnh `/` vẫn dùng bình thường.
+2. Tin **không có `/`** được gửi lên Gemini, kèm danh sách lệnh bot, tên tài khoản đã có (`state\<tk>.json`), danh sách hạt và giờ hiện tại. Gemini chỉ được trả về JSON: tối đa 3 lệnh.
+3. Bot **kiểm tra lại** câu trả lời bằng đúng danh sách lệnh và cách kiểm tra tham số sẵn có (tên tài khoản, loại hạt, số giờ…). Lệnh lạ / tham số sai thì bỏ, có ghi *"Bỏ qua: …"*.
+4. Lệnh **chỉ xem** (`/trangthai`, `/lich`, `/log`, `/anh`, `/thongke`, `/maytinh`, `/help`): chạy luôn, kèm dòng *"🤖 Hiểu là: …"*.
+5. Lệnh **có thay đổi** (`/chay`, `/xemruong`, `/thamhiem`, `/huylich`, `/tamdung`, `/tiep`, `/dung`): bot hỏi lại *"🤖 Mình hiểu là: • /chay akaka … Làm nhé?"* kèm 2 nút **✅ Làm / ❌ Huỷ** ngay dưới tin (nút trong tin, không phải bàn phím chat). Chỉ chạy khi bấm ✅ trong 5 phút (`$AiConfirmMin`). Bot khởi động lại thì nút cũ báo hết hạn.
+6. Không phải lệnh (hỏi chuyện…): bot trả lời 1 câu ngắn + gợi ý lệnh. AI không đọc được trạng thái thật, nên không trả lời kiểu *"cây chín lúc mấy giờ"*, dùng `/trangthai` / `/lich`.
+
+AI **không chạy được gì ngoài các lệnh `/` sẵn có**, và vẫn chỉ nhận tin từ đúng `chat_id`. Không có `ai.json` thì AI tắt, bot như cũ (tin không có `/` bị bỏ qua).
+
+**Cài (làm 1 lần):**
+1. Vào **Google AI Studio** → *Get API key* → tạo key (gói miễn phí). Key là chuỗi bắt đầu bằng `AIza…`.
+2. Copy `ai.example.json` thành **`ai.json`** trong thư mục script, mở bằng Notepad, thay `DIEN_API_KEY_GEMINI` bằng key. `ai.json` đã nằm trong `.gitignore`, **không đưa lên git, không gửi cho ai**. Lộ key thì xoá key đó trong AI Studio rồi tạo key mới.
+3. Khởi động lại bot (`cai_bot.bat` hoặc tắt / bật lại tác vụ bot). Tin *"Bot DDTank đã sẵn sàng"* có thêm dòng *"💬 AI Gemini: bật"* là xong.
+
+| Trường trong `ai.json` | Mặc định | Ý nghĩa |
+|---|---|---|
+| `gemini_api_key` | – | API key Gemini |
+| `model` | `gemini-flash-latest` | Model Gemini. Google đổi tên model thì sửa ở đây (bot báo *"không có model …"*) |
+| `bat` | `true` | `false` = tắt AI mà không xoá key |
+
+Thử AI hiểu 1 câu thế nào (chỉ in ra màn hình, **không gửi Telegram, không chạy lệnh**):
+
+```bat
+powershell -ExecutionPolicy Bypass -File telegram_bot.ps1 -Thu "chạy nông trại cho akaka" -ChiXem
+```
+
+| Bot báo | Nghĩa |
+|---|---|
+| `⚠️ AI đang lỗi (Gemini hết lượt miễn phí…)` | Gói miễn phí giới hạn số tin mỗi phút / mỗi ngày. Chờ một lúc hoặc gõ lệnh `/` |
+| `⚠️ AI đang lỗi (Gemini API key sai hoặc bị khoá…)` | Sửa key trong `ai.json`, khởi động lại bot |
+| `⚠️ AI đang lỗi (không kết nối được Gemini…)` | Mất mạng hoặc Gemini không trả lời sau 20 giây (`$AiTimeoutSec`) |
+
+Lưu ý riêng tư: gói miễn phí của Google có thể dùng nội dung gửi lên để cải thiện mô hình. Nội dung gửi gồm câu bạn nhắn, tên tài khoản game và danh sách lệnh; **không có** bot token, chat_id hay mật khẩu.
+
 ### Bot giao tiếp với Telegram thế nào (long polling, không dùng webhook)
 
 ```
@@ -681,6 +720,7 @@ ddtank-farm\
 ├─ cai_bot.ps1 / .bat     cài / xem / gỡ bot (tự chạy khi đăng nhập Windows)
 ├─ telegram.json          bot_token + chat_id của bạn (KHÔNG chia sẻ)
 ├─ telegram.example.json  file mẫu
+├─ ai.json                API key Gemini cho nhắn tin bình thường (tuỳ chọn, KHÔNG chia sẻ); mẫu: ai.example.json
 ├─ README.md              tài liệu này
 ├─ templates\             ảnh mẫu (chụp ở 1600x900); seed_<tên>.png = hạt giống, timer_digits.txt = mẫu chữ số đồng hồ ô đất
 ├─ logs\                  log + ảnh mỗi lần chạy
@@ -799,6 +839,7 @@ Danh sách đề xuất ngày 18/11/2026. Cập nhật trạng thái mỗi khi l
 | 16 | `/thongke [ngày]` | ✅ | Lịch sử ở `state\lich_su.jsonl`, đã tạo lại từ log cũ (mục 6) |
 | 17 | Tóm tắt mỗi ngày lúc 22:00 | ⬜ | |
 | 18 | `/maytinh`: RAM, CPU, ổ đĩa, uptime, màn hình xanh, Wi-Fi, VPN, MuMu, tự đăng nhập | ✅ | |
+| 19 | Nhắn tin bình thường (AI Gemini chuyển thành lệnh, hỏi lại trước lệnh có thay đổi) | 🟡 | Làm 20/11, đã test offline với Gemini giả lập; cần `ai.json` để chạy thật (mục 5) |
 
 ### D. Hạ tầng (bạn tự làm)
 

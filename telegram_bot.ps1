@@ -13,9 +13,12 @@
 #
 #  Chay tay de thu 1 lenh (tra loi gui ve Telegram that):
 #    powershell -ExecutionPolicy Bypass -File telegram_bot.ps1 -Thu "/trangthai"
+#  Thu AI hieu tin nhan the nao (chi in ra man hinh, khong gui Telegram, khong chay gi):
+#    powershell -ExecutionPolicy Bypass -File telegram_bot.ps1 -Thu "chay nong trai cho akaka" -ChiXem
 # =====================================================================
 param(
-    [string]$Thu   # xu ly 1 lenh nhu the vua nhan tu Telegram roi thoat (de test)
+    [string]$Thu,      # xu ly 1 lenh nhu the vua nhan tu Telegram roi thoat (de test)
+    [switch]$ChiXem    # di kem -Thu "<tin khong co />": chi in lenh AI hieu ra, khong gui / khong chay
 )
 
 # --------------------------- CAU HINH --------------------------------
@@ -31,6 +34,8 @@ $MaxAgeSec  = 600                # lenh cu hon 10 phut thi bo qua
 $ShowKeyboard = $false           # ban phim nut bam duoi o chat ($false = tat va go ban phim dang hien)
 $AutoReconnect = $true           # mat mang -> tu ket noi lai Wi-Fi da luu (ket_noi_mang.ps1)
 $NetRepairAfterSec = 60          # mat 60s: netsh ket noi lai; 120s: them khoi dong lai card (can admin); sau do 10 phut/lan
+$AiTimeoutSec  = 20              # cho Gemini toi da (giay), qua thi bao loi
+$AiConfirmMin  = 5               # nut ✅ Lam / ❌ Huy cua tin AI hoi lai het han sau (phut)
 # ---------------------------------------------------------------------
 
 $ErrorActionPreference = "Stop"
@@ -164,10 +169,10 @@ function Get-PauseUntil {
     try { return [datetime]::ParseExact((Get-Content $PauseFile -Raw).Trim(), 'yyyy-MM-dd HH:mm:ss', $null) } catch { return $null }
 }
 
-# Tai khoan da tung chay (co state\<tk>.json), bo tai khoan test zz_*
+# Tai khoan da tung chay (co state\<tk>.json), bo tai khoan test zz_* va thoi_gian_lon.json (thoi gian lon cua hat, khong phai tai khoan)
 function Get-Accounts {
     @(Get-ChildItem (Join-Path $StateDir "*.json") -ErrorAction SilentlyContinue |
-      Where-Object { $_.BaseName -match $ValidAcc -and $_.BaseName -notlike 'zz_*' } | ForEach-Object { $_.BaseName })
+      Where-Object { $_.BaseName -match $ValidAcc -and $_.BaseName -notlike 'zz_*' -and $_.BaseName -ne 'thoi_gian_lon' } | ForEach-Object { $_.BaseName })
 }
 
 # Lich tu lap da qua gio chin (bi doi toi het tam dung) -> keo ve chay som (2 phut nua, moi tai khoan cach nhau 1 phut)
@@ -529,8 +534,191 @@ function Safe-Handle([string]$text) {
     }
 }
 
+# ------------------------------ AI (GEMINI) ---------------------------
+# Nhan tin binh thuong (khong co "/") -> Gemini chuyen thanh lenh bot (JSON) -> bot kiem tra lai bang DUNG danh sach
+# lenh + cach kiem tra tham so san co -> lenh chi xem thi chay luon, lenh co thay doi thi hoi lai (nut Lam / Huy).
+# AI KHONG tu chay gi ngoai cac lenh "/" san co. Gemini loi / het luot -> bao loi; lenh "/" khong goi Gemini nen van chay.
+# Cau hinh: ai.json (KHONG dua len git; mau: ai.example.json). Khong co ai.json hoac "bat": false -> tat AI, bot nhu cu.
+$Ai = $null
+$AiFile = Join-Path $Root "ai.json"
+if (Test-Path $AiFile) {
+    try {
+        $ac = Get-Content $AiFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        $aiModel = if ($ac.model) { ([string]$ac.model).Trim() } else { 'gemini-flash-latest' }
+        if ($ac.bat -eq $false) { BLog "AI: tat (ai.json: bat = false)" }
+        elseif (-not $ac.gemini_api_key -or [string]$ac.gemini_api_key -match 'DIEN_') { BLog "AI: ai.json chua dien gemini_api_key -> tat AI" }
+        elseif ($aiModel -notmatch '^[A-Za-z0-9.\-]{3,60}$') { BLog "AI: ten model trong ai.json khong hop le -> tat AI" }
+        else { $Ai = @{ Key = ([string]$ac.gemini_api_key).Trim(); Model = $aiModel } }
+    } catch { BLog "AI: doc ai.json loi: $($_.Exception.Message) -> tat AI" }
+}
+$AiHttp = New-Object System.Net.Http.HttpClient
+$AiHttp.Timeout = [TimeSpan]::FromSeconds($AiTimeoutSec)
+$AiPending = @{}   # id nut bam -> @{ Cmds; At } (mat khi bot khoi dong lai -> nut bao het han)
+$AiAllowed = @('chay', 'xemruong', 'thamhiem', 'huylich', 'tamdung', 'tiep', 'dung', 'trangthai', 'anh', 'log', 'lich', 'thongke', 'maytinh', 'help')
+$AiSafe    = @('trangthai', 'anh', 'log', 'lich', 'thongke', 'maytinh', 'help')   # chi xem -> chay luon, khong hoi lai
+if ($Ai) { $Help += "`n`n💬 Nhắn bình thường (không có /) cũng được, vd: ""chạy nông trại cho akaka"", ""tạm dừng 2 tiếng"", ""xem lịch"". AI Gemini chuyển thành lệnh; lệnh có thay đổi sẽ hỏi lại (nút ✅ Làm / ❌ Huỷ) trước khi làm. AI lỗi thì vẫn gõ lệnh / như thường." }
+
+function Get-AiPrompt {
+    $accs = @(Get-Accounts)
+    $accTxt = if ($accs.Count) { $accs -join ', ' } else { '(chưa có)' }
+    $seeds = ($SeedTypes.Keys | ForEach-Object { "$_ ($($SeedTypes[$_].Name))" }) -join ', '
+    $now = Get-Date -Format 'HH:mm dd/MM/yyyy'
+@"
+Bạn là bộ chuyển tin nhắn tiếng Việt thành lệnh cho bot Telegram điều khiển script tự động game DDTank (nông trại, thú cưỡi thám hiểm) trên giả lập MuMu.
+Chỉ trả về đúng 1 object JSON, không thêm chữ nào khác:
+{"lenh":[{"ten":"...","tk":"...","hat":"...","so":"..."}],"tra_loi":"..."}
+
+Các lệnh được phép (ten phải là một trong các tên này):
+- chay: chạy ngay nông trại (thu hoạch + trồng) cho tài khoản tk. hat (tuỳ chọn): loại hạt muốn gieo, được lưu cố định cho các lượt sau
+- xemruong: vào game nhận rương Thánh vật + chụp ảnh ruộng của tk, không thu hoạch
+- thamhiem: chạy ngay thú cưỡi thám hiểm cho tk (nhận thưởng tổ đội + cho đi tiếp)
+- huylich: xoá lịch và tắt tự lập lịch của tk (cả nông trại lẫn thám hiểm)
+- tamdung: tạm dừng mọi lịch tự động trong so giờ (0.1 đến 168, tối đa 2 chữ số thập phân)
+- tiep: bật lại lịch tự động sau khi tạm dừng
+- dung: dừng lượt đang chạy, tắt game và thiết bị
+- trangthai: xem script có đang chạy không, thiết bị, lịch, log gần nhất
+- anh: chụp màn hình thiết bị
+- log: xem log lần chạy gần nhất
+- lich: xem tất cả lịch tự động
+- thongke: thống kê so ngày gần đây (1 đến 60, bỏ trống = 7)
+- maytinh: RAM, ổ đĩa, CPU, Wi-Fi của máy tính
+- help: danh sách lệnh
+
+Tài khoản đã biết: $accTxt. Người dùng hay gõ tắt / sai chính tả tên tài khoản: chọn tài khoản đã biết giống nhất. Không đoán chắc được tài khoản nào thì không đưa lệnh đó, hỏi lại trong tra_loi.
+Loại hạt (hat dùng đúng key): $seeds.
+Tối đa 3 lệnh, đúng thứ tự người dùng nói. Bỏ trống trường không dùng.
+Bây giờ là $now. Đổi thời gian sang số giờ khi cần, ví dụ "tạm dừng tới 20h" lúc 18:30 thì so = "1.5".
+tra_loi: 1 câu ngắn tiếng Việt. Nếu tin nhắn không phải yêu cầu một lệnh ở trên (hỏi chuyện, hỏi thông tin) thì lenh = [] và tra_loi gợi ý lệnh gần nhất có thể giúp. Không bịa thông tin về trạng thái, lịch, giờ cây chín.
+"@
+}
+
+# Goi Gemini, tra ve chu (JSON) AI tra loi. Loi -> throw cau tieng Viet de bao nguoi dung (khong chua API key)
+function Invoke-Gemini([string]$text) {
+    $url = "https://generativelanguage.googleapis.com/v1beta/models/$($Ai.Model):generateContent"
+    $gen = @{ temperature = 0; responseMimeType = 'application/json'; thinkingConfig = @{ thinkingBudget = 0 } }
+    for ($try = 1; $try -le 2; $try++) {
+        $body = @{ system_instruction = @{ parts = @(@{ text = (Get-AiPrompt) }) }
+                   contents = @(@{ role = 'user'; parts = @(@{ text = $text }) })
+                   generationConfig = $gen } | ConvertTo-Json -Depth 10 -Compress
+        $req = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Post, $url)
+        [void]$req.Headers.TryAddWithoutValidation('x-goog-api-key', $Ai.Key)   # key o header, khong o URL
+        $req.Content = New-Object System.Net.Http.StringContent($body, [Text.Encoding]::UTF8, 'application/json')
+        try { $resp = $AiHttp.SendAsync($req).GetAwaiter().GetResult() }
+        catch { throw "không kết nối được Gemini: $(Err-Msg $_)" }
+        $code = [int]$resp.StatusCode
+        $txt = [Text.Encoding]::UTF8.GetString($resp.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult())
+        if ($code -eq 200) {
+            $r = $txt | ConvertFrom-Json
+            $out = (@(@($r.candidates)[0].content.parts) | Where-Object { $_ -and -not $_.thought } | ForEach-Object { $_.text }) -join ''
+            if (-not $out) { throw "Gemini trả lời rỗng" }
+            return $out
+        }
+        # model khong nhan thinkingConfig -> thu lai 1 lan khong co
+        if ($code -eq 400 -and $try -eq 1 -and $txt -match 'thinking') { $gen.Remove('thinkingConfig'); continue }
+        $detail = try { [string](($txt | ConvertFrom-Json).error.message) } catch { '' }
+        BLog "AI loi HTTP ${code}: $detail"
+        $why = if ($code -eq 429) { "hết lượt miễn phí, thử lại sau ít phút" }
+               elseif (($code -in @(401, 403)) -or ($txt -match 'API_KEY')) { "API key sai hoặc bị khoá, sửa ai.json" }
+               elseif ($code -eq 404) { "không có model '$($Ai.Model)', sửa model trong ai.json" }
+               elseif ($code -ge 500) { "máy chủ Gemini lỗi $code" }
+               else { "lỗi $code" }
+        throw "Gemini $why"
+    }
+}
+
+# JSON cua AI -> danh sach lenh "/..." da kiem tra (ten trong $AiAllowed, tai khoan / hat / so hop le). Lenh sai -> Bad
+function ConvertTo-AiCommands([string]$raw) {
+    $m = [regex]::Match($raw, '(?s)\{.*\}')
+    if (-not $m.Success) { throw "AI trả lời không phải JSON" }
+    $j = $m.Value | ConvertFrom-Json
+    $cmds = @(); $bad = @()
+    foreach ($i in @(@($j.lenh) | Where-Object { $_ } | Select-Object -First 3)) {
+        $ten = ([string]$i.ten).Trim().TrimStart('/').ToLower()
+        $tk = ([string]$i.tk).Trim(); $hat = ([string]$i.hat).Trim(); $so = ([string]$i.so).Trim() -replace ',', '.'
+        if ($ten -notin $AiAllowed) { $bad += "lệnh '$ten' không có"; continue }
+        $c = "/$ten"
+        if ($ten -in 'chay', 'xemruong', 'thamhiem', 'huylich') {
+            if ($tk -notmatch $ValidAcc) { $bad += "/$ten thiếu tài khoản"; continue }
+            $c += " $tk"
+            if ($ten -eq 'chay' -and $hat) {
+                $k = ConvertTo-SeedKey $hat
+                if (-not $k) { $bad += "/chay $tk – không có loại hạt '$hat'"; continue }
+                $c += " $k"
+            }
+        } elseif ($ten -eq 'tamdung') {
+            if ($so -notmatch '^\d{1,3}(\.\d{1,2})?$') { $bad += "/tamdung thiếu số giờ"; continue }
+            $c += " $so"
+        } elseif ($ten -eq 'thongke' -and $so) {
+            if ($so -notmatch '^\d{1,2}$') { $bad += "/thongke – số ngày '$so' không hợp lệ"; continue }
+            $c += " $so"
+        }
+        $cmds += $c
+    }
+    $tl = ([string]$j.tra_loi).Trim()
+    if ($tl.Length -gt 500) { $tl = $tl.Substring(0, 500) + '…' }
+    return @{ Cmds = $cmds; Bad = $bad; Text = $tl }
+}
+
+function Handle-AI([string]$text) {
+    BLog "Tin (AI): $text"
+    try { $raw = Invoke-Gemini $text }
+    catch {
+        $e = $_.Exception.Message; BLog "AI loi: $e"
+        if ($ChiXem) { Write-Host "AI LOI: $e"; return }
+        Reply "⚠️ AI đang lỗi ($e). Gõ lệnh trực tiếp nhé, vd: /chay <tài khoản> – xem /help"; return
+    }
+    $short = $raw -replace '\s+', ' '; if ($short.Length -gt 300) { $short = $short.Substring(0, 300) + '…' }
+    BLog "  AI: $short"
+    try { $p = ConvertTo-AiCommands $raw }
+    catch { if ($ChiXem) { Write-Host "JSON LOI: $raw"; return }; Reply "⚠️ AI trả lời không đọc được, gõ lệnh trực tiếp nhé (/help)"; return }
+    if ($ChiXem) { Write-Host "Lenh   : $($p.Cmds -join ' | ')"; Write-Host "Bo qua : $($p.Bad -join ' | ')"; Write-Host "Tra loi: $($p.Text)"; return }
+    $note = if ($p.Bad.Count) { "`n(Bỏ qua: $($p.Bad -join '; '))" } else { "" }
+    if (-not $p.Cmds.Count) {
+        $t = if ($p.Text) { $p.Text } else { "Mình chưa hiểu bạn muốn làm gì." }
+        Reply "🤖 $t$note`nGõ /help để xem lệnh."; return
+    }
+    $risky = @($p.Cmds | Where-Object { $_.Split(' ')[0].TrimStart('/') -notin $AiSafe })
+    if (-not $risky.Count) {
+        Reply "🤖 Hiểu là: $($p.Cmds -join ', ')$note"
+        foreach ($c in $p.Cmds) { Safe-Handle $c }
+        return
+    }
+    # Co lenh lam thay doi -> hoi lai bang nut bam, chi chay khi bam ✅ trong $AiConfirmMin phut
+    foreach ($k in @($AiPending.Keys)) { if (((Get-Date) - $AiPending[$k].At).TotalMinutes -gt $AiConfirmMin) { $AiPending.Remove($k) } }
+    $id = -join ((1..8) | ForEach-Object { '{0:x}' -f (Get-Random -Maximum 16) })
+    $AiPending[$id] = @{ Cmds = $p.Cmds; At = Get-Date }
+    $kb = @{ inline_keyboard = @(, @(@{ text = '✅ Làm'; callback_data = "ok:$id" }, @{ text = '❌ Huỷ'; callback_data = "no:$id" })) } | ConvertTo-Json -Depth 5 -Compress
+    Reply ("🤖 Mình hiểu là:`n" + (($p.Cmds | ForEach-Object { "• $_" }) -join "`n") + "$note`nLàm nhé? (nút hết hạn sau $AiConfirmMin phút)") $kb
+}
+
+function Safe-HandleAI([string]$text) {
+    try { Handle-AI $text }
+    catch {
+        BLog "Loi AI '$text': $($_.Exception.Message)"
+        try { Reply "❌ Lỗi khi xử lý tin nhắn: $($_.Exception.Message)`nGõ lệnh / trực tiếp nhé (/help)" } catch {}
+    }
+}
+
+# Bam nut ✅ Lam / ❌ Huy duoi tin hoi lai cua AI
+function Handle-Callback($cq) {
+    if ([string]$cq.message.chat.id -ne $ChatId) { BLog "Bo qua nut bam tu chat la $($cq.message.chat.id)"; return }
+    try { [void](Tg "answerCallbackQuery" @{ callback_query_id = $cq.id }) } catch {}
+    if ([string]$cq.data -notmatch '^(ok|no):([0-9a-f]{8})$') { return }
+    $act = $Matches[1]; $id = $Matches[2]
+    $p = $AiPending[$id]
+    if ($p) { $AiPending.Remove($id) }
+    $orig = [string]$cq.message.text
+    $mid = $cq.message.message_id
+    $edit = { param($s) try { [void](Tg "editMessageText" @{ chat_id = $ChatId; message_id = $mid; text = "$orig`n$s" }) } catch { BLog "Sua tin loi: $($_.Exception.Message)" } }
+    if (-not $p -or ((Get-Date) - $p.At).TotalMinutes -gt $AiConfirmMin) { BLog "AI: nut $act $id het han"; & $edit "⌛ Hết hạn (hoặc bot vừa khởi động lại), nhắn lại nhé."; return }
+    if ($act -eq 'no') { BLog "AI: huy $($p.Cmds -join ', ')"; & $edit "❌ Đã huỷ, không làm gì."; return }
+    BLog "AI: dong y $($p.Cmds -join ', ')"
+    & $edit "✅ Đã đồng ý, đang làm…"
+    foreach ($c in $p.Cmds) { Safe-Handle $c }
+}
+
 # ------------------------------ CHAY ---------------------------------
-if ($Thu) { Safe-Handle $Thu; exit 0 }
+if ($Thu) { if ($Thu.StartsWith('/')) { Safe-Handle $Thu } elseif ($Ai) { Safe-HandleAI $Thu } else { Write-Host "AI dang tat (chua co ai.json)" }; exit 0 }
 
 # Chi 1 bot chay mot luc
 $mtx = New-Object System.Threading.Mutex($false, "Local\DDTankTelegramBot")
@@ -573,7 +761,7 @@ try {
     )
     [void](Tg "setMyCommands" @{ commands = (ConvertTo-Json $cmds -Compress) })
 } catch { BLog "setMyCommands loi: $($_.Exception.Message)" }
-try { Reply "🤖 Bot DDTank đã sẵn sàng. Gõ /help để xem lệnh$(if ($ShowKeyboard) { ' hoặc bấm nút bên dưới' })." (Get-Keyboard) } catch { BLog "Gui tin khoi dong loi: $($_.Exception.Message)" }
+try { Reply "🤖 Bot DDTank đã sẵn sàng. Gõ /help để xem lệnh$(if ($ShowKeyboard) { ' hoặc bấm nút bên dưới' }).$(if ($Ai) { "`n💬 AI Gemini: bật – nhắn bình thường (không có /) cũng được." })" (Get-Keyboard) } catch { BLog "Gui tin khoi dong loi: $($_.Exception.Message)" }
 $lastTrim = Get-Date
 
 $offset = 0
@@ -594,7 +782,7 @@ while ($true) {
     }
     if (((Get-Date) - $lastTrim).TotalHours -ge 24) { Trim-BotLog; $lastTrim = Get-Date }
     try {
-        $r = Tg "getUpdates" @{ offset = $offset; timeout = 50; allowed_updates = '["message"]' }
+        $r = Tg "getUpdates" @{ offset = $offset; timeout = 50; allowed_updates = '["message","callback_query"]' }
         if ($offSince) {
             $mins = [int]((Get-Date) - $offSince).TotalMinutes
             BLog "Co ket noi lai (mat tu $($offSince.ToString('HH:mm dd/MM')), $mins phut)"
@@ -613,10 +801,12 @@ while ($true) {
         foreach ($u in $r.result) {
             $offset = [long]$u.update_id + 1
             Set-Content -Path $OffsetFile -Value $offset
+            if ($u.callback_query) { try { Handle-Callback $u.callback_query } catch { BLog "Loi nut bam: $($_.Exception.Message)" }; continue }
             $m = $u.message
             if (-not $m -or -not $m.text) { continue }
             if ([string]$m.chat.id -ne $ChatId) { BLog "Bo qua tin tu chat la $($m.chat.id)"; continue }
-            if (-not $m.text.StartsWith("/")) { continue }
+            $isCmd = $m.text.StartsWith("/")
+            if (-not $isCmd -and -not $Ai) { continue }   # tin khong co "/" chi xu ly khi bat AI
             $age = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - [long]$m.date
             if ($age -gt $MaxAgeSec) {
                 $sent = [DateTimeOffset]::FromUnixTimeSeconds([long]$m.date).ToLocalTime().ToString('HH:mm dd/MM')
@@ -624,7 +814,7 @@ while ($true) {
                 Reply "⏭️ Bỏ qua lệnh cũ '$($m.text)' (gửi lúc $sent, quá 10 phút). Gửi lại nếu vẫn cần."
                 continue
             }
-            Safe-Handle $m.text
+            if ($isCmd) { Safe-Handle $m.text } else { Safe-HandleAI $m.text }
         }
     } catch {
         $msg = Err-Msg $_
