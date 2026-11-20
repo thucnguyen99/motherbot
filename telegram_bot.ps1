@@ -34,7 +34,9 @@ $MaxAgeSec  = 600                # lenh cu hon 10 phut thi bo qua
 $ShowKeyboard = $false           # ban phim nut bam duoi o chat ($false = tat va go ban phim dang hien)
 $AutoReconnect = $true           # mat mang -> tu ket noi lai Wi-Fi da luu (ket_noi_mang.ps1)
 $NetRepairAfterSec = 60          # mat 60s: netsh ket noi lai; 120s: them khoi dong lai card (can admin); sau do 10 phut/lan
-$AiTimeoutSec  = 20              # cho Gemini toi da (giay), qua thi bao loi
+$AiTimeoutSec  = 12              # cho moi model Gemini toi da (giay), qua thi thu model ke tiep
+$AiDefaultModels = @('gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-2.5-flash')   # thu lan luot (ai.json "model" de doi)
+$AiHistoryMin  = 3               # AI vua hoi lai (chua ra lenh) -> giu cau hoi-dap nay cho tin ke tiep trong 3 phut
 $AiConfirmMin  = 5               # nut ✅ Lam / ❌ Huy cua tin AI hoi lai het han sau (phut)
 # ---------------------------------------------------------------------
 
@@ -544,16 +546,20 @@ $AiFile = Join-Path $Root "ai.json"
 if (Test-Path $AiFile) {
     try {
         $ac = Get-Content $AiFile -Raw -Encoding UTF8 | ConvertFrom-Json
-        $aiModel = if ($ac.model) { ([string]$ac.model).Trim() } else { 'gemini-2.5-flash' }   # 20/11: gemini-flash-latest treo >90s, 2.5-flash ~1s
+        # "model": 1 ten hoac danh sach ["a", "b"] -> thu lan luot; model het luot / loi thi sang model ke tiep
+        $aiModels = @(@($ac.model) | ForEach-Object { ([string]$_) -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        if (-not $aiModels.Count) { $aiModels = $AiDefaultModels }
         if ($ac.bat -eq $false) { BLog "AI: tat (ai.json: bat = false)" }
         elseif (-not $ac.gemini_api_key -or [string]$ac.gemini_api_key -match 'DIEN_') { BLog "AI: ai.json chua dien gemini_api_key -> tat AI" }
-        elseif ($aiModel -notmatch '^[A-Za-z0-9.\-]{3,60}$') { BLog "AI: ten model trong ai.json khong hop le -> tat AI" }
-        else { $Ai = @{ Key = ([string]$ac.gemini_api_key).Trim(); Model = $aiModel } }
+        elseif (@($aiModels | Where-Object { $_ -notmatch '^[A-Za-z0-9.\-]{3,60}$' }).Count) { BLog "AI: ten model trong ai.json khong hop le -> tat AI" }
+        else { $Ai = @{ Key = ([string]$ac.gemini_api_key).Trim(); Models = $aiModels } }
     } catch { BLog "AI: doc ai.json loi: $($_.Exception.Message) -> tat AI" }
 }
 $AiHttp = New-Object System.Net.Http.HttpClient
 $AiHttp.Timeout = [TimeSpan]::FromSeconds($AiTimeoutSec)
 $AiPending = @{}   # id nut bam -> @{ Cmds; At } (mat khi bot khoi dong lai -> nut bao het han)
+$AiBlocked = @{}   # model -> het luot toi luc nao (het luot ngay: toi 0h gio My Thai Binh Duong = 14/15h VN; het luot phut: 1 phut)
+$AiHistory = @()   # cau hoi-dap gan nhat khi AI hoi lai (chua ra lenh), gui kem tin ke tiep
 $AiAllowed = @('chay', 'xemruong', 'thamhiem', 'huylich', 'tamdung', 'tiep', 'dung', 'trangthai', 'anh', 'log', 'lich', 'thongke', 'maytinh', 'help')
 $AiSafe    = @('trangthai', 'anh', 'log', 'lich', 'thongke', 'maytinh', 'help')   # chi xem -> chay luon, khong hoi lai
 if ($Ai) { $Help += "`n`n💬 Nhắn bình thường (không có /) cũng được, vd: ""chạy nông trại cho akaka"", ""tạm dừng 2 tiếng"", ""xem lịch"". AI Gemini chuyển thành lệnh; lệnh có thay đổi sẽ hỏi lại (nút ✅ Làm / ❌ Huỷ) trước khi làm. AI lỗi thì vẫn gõ lệnh / như thường." }
@@ -587,6 +593,7 @@ Các lệnh được phép (ten phải là một trong các tên này):
 Tài khoản đã biết: $accTxt. Người dùng hay gõ tắt / sai chính tả tên tài khoản: chọn tài khoản đã biết giống nhất. Không đoán chắc được tài khoản nào thì không đưa lệnh đó, hỏi lại trong tra_loi.
 Loại hạt (hat dùng đúng key): $seeds.
 Tối đa 3 lệnh, đúng thứ tự người dùng nói. Bỏ trống trường không dùng.
+Nếu trước đó bạn vừa hỏi lại (vd "cho tài khoản nào?") thì tin mới là câu trả lời: ghép với yêu cầu trước để ra lệnh.
 Phân biệt: "đừng chạy / thôi chạy / bỏ lịch / tắt tự động" cho 1 tài khoản là huylich tk. dung chỉ dùng khi muốn dừng NGAY lượt đang chạy / tắt máy giả lập (không theo tài khoản).
 Hỏi "cây chín chưa / khi nào chạy tiếp / lượt sau lúc mấy giờ" là lich (lịch tự lập theo giờ cây chín). Hỏi "đang chạy không / đang làm gì" là trangthai.
 Bây giờ là $now. Đổi thời gian sang số giờ khi cần, ví dụ "tạm dừng tới 20h" lúc 18:30 thì so = "1.5".
@@ -594,40 +601,69 @@ tra_loi: 1 câu ngắn tiếng Việt. Nếu tin nhắn không phải yêu cầu
 "@
 }
 
-# Goi Gemini, tra ve chu (JSON) AI tra loi. Loi -> throw cau tieng Viet de bao nguoi dung (khong chua API key)
-function Invoke-Gemini([string]$text) {
-    $url = "https://generativelanguage.googleapis.com/v1beta/models/$($Ai.Model):generateContent"
-    $gen = @{ temperature = 0; responseMimeType = 'application/json'; thinkingConfig = @{ thinkingBudget = 0 } }
+# Lan het luot ngay cua Gemini: 0h gio Thai Binh Duong (My) -> doi ra gio may
+function Get-GeminiDayReset {
+    try {
+        $tz = [TimeZoneInfo]::FindSystemTimeZoneById('Pacific Standard Time')
+        $pt = [TimeZoneInfo]::ConvertTime((Get-Date), $tz)
+        return [TimeZoneInfo]::ConvertTime([datetime]::SpecifyKind($pt.Date.AddDays(1), 'Unspecified'), $tz, [TimeZoneInfo]::Local)
+    } catch { return (Get-Date).AddHours(6) }
+}
+
+# Goi 1 model. Tra ve @{ Ok; Text; Code; Why; Detail }. Khong throw (de thu model ke tiep)
+function Invoke-GeminiModel([string]$model, [array]$contents) {
+    $url = "https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent"
+    # tat / giam "suy nghi" cho nhanh: model 2.5 dung thinkingBudget, model 3.x dung thinkingLevel
+    $think = if ($model -match '2\.5') { @{ thinkingBudget = 0 } } else { @{ thinkingLevel = 'minimal' } }
+    $gen = @{ temperature = 0; responseMimeType = 'application/json'; thinkingConfig = $think }
     for ($try = 1; $try -le 2; $try++) {
         $body = @{ system_instruction = @{ parts = @(@{ text = (Get-AiPrompt) }) }
-                   contents = @(@{ role = 'user'; parts = @(@{ text = $text }) })
+                   contents = $contents
                    generationConfig = $gen } | ConvertTo-Json -Depth 10 -Compress
         $req = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Post, $url)
         [void]$req.Headers.TryAddWithoutValidation('x-goog-api-key', $Ai.Key)   # key o header, khong o URL
         $req.Content = New-Object System.Net.Http.StringContent($body, [Text.Encoding]::UTF8, 'application/json')
         try { $resp = $AiHttp.SendAsync($req).GetAwaiter().GetResult() }
-        catch { throw "không kết nối được Gemini: $(Err-Msg $_)" }
+        catch { return @{ Ok = $false; Code = 0; Why = "không phản hồi sau $AiTimeoutSec giây"; Detail = (Err-Msg $_) } }
         $code = [int]$resp.StatusCode
         $txt = [Text.Encoding]::UTF8.GetString($resp.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult())
         if ($code -eq 200) {
             $r = $txt | ConvertFrom-Json
             $out = (@(@($r.candidates)[0].content.parts) | Where-Object { $_ -and -not $_.thought } | ForEach-Object { $_.text }) -join ''
-            if (-not $out) { throw "Gemini trả lời rỗng" }
-            return $out
+            if (-not $out) { return @{ Ok = $false; Code = 200; Why = "trả lời rỗng"; Detail = '' } }
+            return @{ Ok = $true; Text = $out; Code = 200 }
         }
-        # model khong nhan thinkingConfig (model 3.x bao 400 "invalid argument", khong noi ro) -> thu lai 1 lan khong co
-        if ($code -eq 400 -and $try -eq 1 -and $gen.ContainsKey('thinkingConfig') -and $txt -notmatch 'API_KEY') { $gen.Remove('thinkingConfig'); continue }
+        # model khong nhan thinkingConfig (bao 400 "invalid argument", khong noi ro) -> gui lai 1 lan khong co
+        if ($code -eq 400 -and $try -eq 1 -and $txt -notmatch 'API_KEY') { $gen.Remove('thinkingConfig'); continue }
         $detail = try { [string](($txt | ConvertFrom-Json).error.message) } catch { '' }
-        BLog "AI loi HTTP ${code}: $detail"
-        $why = if ($code -eq 429) { "hết lượt miễn phí, thử lại sau ít phút" }
+        $why = if ($code -eq 429) { if ($detail -match 'per day|PerDay') { "hết lượt miễn phí trong ngày" } else { "hết lượt miễn phí (mỗi phút)" } }
                elseif (($code -in @(401, 403)) -or ($txt -match 'API_KEY')) { "API key sai hoặc bị khoá, sửa ai.json" }
-               elseif ($code -eq 404) { "không có model '$($Ai.Model)', sửa model trong ai.json" }
+               elseif ($code -eq 404) { "không có model này" }
                elseif ($code -ge 500) { "máy chủ Gemini lỗi $code" }
                else { "lỗi $code" }
-        throw "Gemini $why"
+        return @{ Ok = $false; Code = $code; Why = $why; Detail = $detail }
     }
 }
 
+# Thu lan luot cac model trong ai.json (bo qua model dang het luot). Tra ve chu (JSON) AI tra loi; het cach -> throw cau tieng Viet
+function Invoke-Gemini([string]$text) {
+    $contents = @()
+    foreach ($h in $AiHistory) { $contents += @{ role = $h.Role; parts = @(@{ text = $h.Text }) } }
+    $contents += @{ role = 'user'; parts = @(@{ text = $text }) }
+    $errs = @()
+    foreach ($model in $Ai.Models) {
+        $until = $AiBlocked[$model]
+        if ($until -and $until -gt (Get-Date)) { $errs += "${model}: hết lượt tới $($until.ToString('HH:mm dd/MM'))"; continue }
+        $r = Invoke-GeminiModel $model $contents
+        if ($r.Ok) { $script:AiLastModel = $model; return $r.Text }
+        $short = ($r.Detail -split "`n")[0]; if ($short.Length -gt 200) { $short = $short.Substring(0, 200) }
+        BLog "AI loi ($model, HTTP $($r.Code)): $($r.Why) | $short"
+        if ($r.Code -in @(401, 403) -or $r.Why -like 'API key*') { throw "Gemini: $($r.Why)" }   # key sai -> model nao cung vay
+        if ($r.Code -eq 429) { $AiBlocked[$model] = if ($r.Why -like '*trong ngày*') { Get-GeminiDayReset } else { (Get-Date).AddMinutes(1) } }
+        $errs += "${model}: $($r.Why)$(if ($AiBlocked[$model] -and $r.Code -eq 429) { " (tới $($AiBlocked[$model].ToString('HH:mm')))" })"
+    }
+    throw "Gemini: $($errs -join '; ')"
+}
 # JSON cua AI -> danh sach lenh "/..." da kiem tra (ten trong $AiAllowed, tai khoan / hat / so hop le). Lenh sai -> Bad
 function ConvertTo-AiCommands([string]$raw) {
     $m = [regex]::Match($raw, '(?s)\{.*\}')
@@ -663,19 +699,23 @@ function ConvertTo-AiCommands([string]$raw) {
 
 function Handle-AI([string]$text) {
     BLog "Tin (AI): $text"
+    $script:AiHistory = @($AiHistory | Where-Object { ((Get-Date) - $_.At).TotalMinutes -le $AiHistoryMin })
     try { $raw = Invoke-Gemini $text }
     catch {
         $e = $_.Exception.Message; BLog "AI loi: $e"
         if ($ChiXem) { Write-Host "AI LOI: $e"; return }
-        Reply "⚠️ AI đang lỗi ($e). Gõ lệnh trực tiếp nhé, vd: /chay <tài khoản> – xem /help"; return
+        Reply "⚠️ AI đang lỗi ($e).`nGõ lệnh trực tiếp nhé, vd: /chay <tài khoản> – xem /help"; return
     }
     $short = $raw -replace '\s+', ' '; if ($short.Length -gt 300) { $short = $short.Substring(0, 300) + '…' }
-    BLog "  AI: $short"
+    BLog "  AI ($($script:AiLastModel)): $short"
     try { $p = ConvertTo-AiCommands $raw }
     catch { if ($ChiXem) { Write-Host "JSON LOI: $raw"; return }; Reply "⚠️ AI trả lời không đọc được, gõ lệnh trực tiếp nhé (/help)"; return }
     if ($ChiXem) { Write-Host "Lenh   : $($p.Cmds -join ' | ')"; Write-Host "Bo qua : $($p.Bad -join ' | ')"; Write-Host "Tra loi: $($p.Text)"; return }
     $note = if ($p.Bad.Count) { "`n(Bỏ qua: $($p.Bad -join '; '))" } else { "" }
+    if ($p.Cmds.Count) { $script:AiHistory = @() }   # da ra lenh -> bat dau lai, khong de tin sau lap lai lenh cu
     if (-not $p.Cmds.Count) {
+        # AI hoi lai (vd "tai khoan nao?") -> nho cau hoi-dap nay de tin tra loi ke tiep ("cho akaka") hieu duoc
+        $script:AiHistory = @(@($AiHistory) + @(@{ Role = 'user'; Text = $text; At = Get-Date }, @{ Role = 'model'; Text = $raw; At = Get-Date }) | Select-Object -Last 4)
         $t = if ($p.Text) { $p.Text } else { "Mình chưa hiểu bạn muốn làm gì." }
         Reply "🤖 $t$note`nGõ /help để xem lệnh."; return
     }

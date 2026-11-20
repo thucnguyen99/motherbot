@@ -403,7 +403,7 @@ Bật AI thì có thể nhắn kiểu nói chuyện, không cần nhớ lệnh: 
 3. Bot **kiểm tra lại** câu trả lời bằng đúng danh sách lệnh và cách kiểm tra tham số sẵn có (tên tài khoản, loại hạt, số giờ…). Lệnh lạ / tham số sai thì bỏ, có ghi *"Bỏ qua: …"*.
 4. Lệnh **chỉ xem** (`/trangthai`, `/lich`, `/log`, `/anh`, `/thongke`, `/maytinh`, `/help`): chạy luôn, kèm dòng *"🤖 Hiểu là: …"*.
 5. Lệnh **có thay đổi** (`/chay`, `/xemruong`, `/thamhiem`, `/huylich`, `/tamdung`, `/tiep`, `/dung`): bot hỏi lại *"🤖 Mình hiểu là: • /chay akaka … Làm nhé?"* kèm 2 nút **✅ Làm / ❌ Huỷ** ngay dưới tin (nút trong tin, không phải bàn phím chat). Chỉ chạy khi bấm ✅ trong 5 phút (`$AiConfirmMin`). Bot khởi động lại thì nút cũ báo hết hạn.
-6. Không phải lệnh (hỏi chuyện…): bot trả lời 1 câu ngắn + gợi ý lệnh. AI không đọc được trạng thái thật, nên không trả lời kiểu *"cây chín lúc mấy giờ"*, dùng `/trangthai` / `/lich`.
+6. Thiếu thông tin (vd *"chạy thám hiểm"* chưa nói tài khoản): bot hỏi lại, bạn trả lời ngắn (*"cho akaka"*) trong 3 phút là đủ, bot nhớ câu trước (`$AiHistoryMin`). Không phải lệnh (hỏi chuyện…): bot trả lời 1 câu ngắn + gợi ý lệnh. AI không đọc được trạng thái thật, nên không trả lời kiểu *"cây chín lúc mấy giờ"*, dùng `/trangthai` / `/lich`.
 
 AI **không chạy được gì ngoài các lệnh `/` sẵn có**, và vẫn chỉ nhận tin từ đúng `chat_id`. Không có `ai.json` thì AI tắt, bot như cũ (tin không có `/` bị bỏ qua).
 
@@ -415,7 +415,7 @@ AI **không chạy được gì ngoài các lệnh `/` sẵn có**, và vẫn ch
 | Trường trong `ai.json` | Mặc định | Ý nghĩa |
 |---|---|---|
 | `gemini_api_key` | – | API key Gemini |
-| `model` | `gemini-2.5-flash` | Model Gemini. Google đổi tên model thì sửa ở đây (bot báo *"không có model …"*). Đo 20/11: `gemini-2.5-flash` ~1 giây; `gemini-flash-latest` treo >90 giây (không dùng); `gemini-3.5-flash-lite` / `gemini-flash-lite-latest` 8–10 giây |
+| `model` | `["gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-2.5-flash"]` | 1 tên hoặc danh sách model, **thử lần lượt**: model hết lượt / lỗi / quá 12 giây (`$AiTimeoutSec`) thì sang model kế tiếp. Model hết lượt trong ngày được bỏ qua tới **15:00 giờ VN** (Gemini reset lúc 0h giờ Mỹ). Mỗi model có hạn mức miễn phí riêng: `gemini-2.5-flash` chỉ **20 lượt/ngày** (hết sau ~20 tin, gặp 20/11). Đo 20/11 (suy nghĩ tắt / `minimal`): 3.1-flash-lite ~1,3 s, 3.5-flash-lite ~2 s, 2.5-flash ~1 s; `gemini-flash-latest` treo >90 s, `gemini-3.5-flash` ~24 s (không dùng) |
 | `bat` | `true` | `false` = tắt AI mà không xoá key |
 
 Thử AI hiểu 1 câu thế nào (chỉ in ra màn hình, **không gửi Telegram, không chạy lệnh**):
@@ -426,7 +426,7 @@ powershell -ExecutionPolicy Bypass -File telegram_bot.ps1 -Thu "chạy nông tr�
 
 | Bot báo | Nghĩa |
 |---|---|
-| `⚠️ AI đang lỗi (Gemini hết lượt miễn phí…)` | Gói miễn phí giới hạn số tin mỗi phút / mỗi ngày. Chờ một lúc hoặc gõ lệnh `/` |
+| `⚠️ AI đang lỗi (Gemini: <model>: hết lượt tới 15:00 …)` | Mọi model trong danh sách đều hết lượt miễn phí. Gõ lệnh `/`, hoặc thêm model khác vào `ai.json` |
 | `⚠️ AI đang lỗi (Gemini API key sai hoặc bị khoá…)` | Sửa key trong `ai.json`, khởi động lại bot |
 | `⚠️ AI đang lỗi (không kết nối được Gemini…)` | Mất mạng hoặc Gemini không trả lời sau 20 giây (`$AiTimeoutSec`) |
 
