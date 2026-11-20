@@ -5,8 +5,10 @@
 #   -ThietBi auto    : ten thiet bi MuMu (tu tim cong ADB; thiet bi phai dang bat va dang o cho cau)
 # Moi lan chay luu vao ket_qua\cau_thu_<ngay>_<gio>\: log.txt (toan bo nhat ky, ca day ban kinh tung vong) + anh.
 # Moi vong bam ghi them 1 dong vao hieu_chinh.csv (ca day ban kinh) de phan tich cac lan Hut / Xuat sac.
+# Tu don: xoa thu muc ket_qua\cau_thu_* cu hon -GiuNgay ngay (mac dinh 7, 0 = khong xoa).
+#   Khong dung ghi_hinh\ (mau cho cong cu test offline), mau\, hieu_chinh.csv, bu_vong_*.txt.
 param([int]$N = 3, [string]$ThietBi = "auto", [string]$Serial = "", [int]$TargetR = 11, [double]$LeadSec = 0.12, [switch]$SlowTap,
-      [string[]]$NghiSau = @(12, 20), [string[]]$NghiGiay = @(20, 90), [switch]$KhongNguoi)
+      [string[]]$NghiSau = @(12, 20), [string[]]$NghiGiay = @(20, 90), [switch]$KhongNguoi, [int]$GiuNgay = 7)
 # Goi qua "powershell -File ... -NghiSau 20,30" thi "20,30" toi day la 1 chuoi (de [int[]] se thanh 2030) -> tu tach thanh [min, max]
 function Khoang([string[]]$v) { $n = [int[]]($v -split '[,;\s-]+' | Where-Object { $_ }); if ($n.Count -eq 1) { $n += $n[0] }; @($n[0], $n[1]) }
 $NghiSau = Khoang $NghiSau; $NghiGiay = Khoang $NghiGiay
@@ -25,6 +27,18 @@ function Say([string]$m, [switch]$NoTime) {
     Add-Content -Path $LogFile -Value $line -Encoding UTF8
 }
 Say ("===== CAU CA {0:yyyy-MM-dd HH:mm:ss}: N={1} ThietBi={2} TargetR={3} LeadSec={4} GiaLapNguoi={5} BamNhanh={6} NghiSau={7} NghiGiay={8} =====" -f (Get-Date), $N, $ThietBi, $TargetR, $LeadSec, (-not $KhongNguoi), (-not $SlowTap), ($NghiSau -join '-'), ($NghiGiay -join '-')) -NoTime
+if ($GiuNgay -gt 0) {
+    try {
+        $cut = (Get-Date).AddDays(-$GiuNgay)
+        $old = @(Get-ChildItem (Split-Path $out) -Directory -Filter "cau_thu_*" -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -ne $out -and $_.LastWriteTime -lt $cut })
+        if ($old.Count) {
+            $mb = [math]::Round((($old | ForEach-Object { Get-ChildItem $_.FullName -Recurse -File }) | Measure-Object Length -Sum).Sum / 1MB, 1)
+            $old | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+            Say "Don ket qua cu: xoa $($old.Count) thu muc cau_thu_* cu hon $GiuNgay ngay ($mb MB)"
+        }
+    } catch { Say "Don ket qua cu loi: $($_.Exception.Message)" }
+}
 
 if (-not $Serial) {
     # cong ADB doi moi lan MuMu khoi dong -> hoi MuMuManager

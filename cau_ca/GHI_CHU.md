@@ -1,7 +1,7 @@
 ﻿# Câu cá: ghi chú từ 2 lần người chơi làm mẫu (18/11/2026, thiết bị `auto`, nhân vật tài khoản 1)
 
 ## Cấu trúc thư mục (`D:\tools\ddtank-farm\cau_ca\`)
-- `cau_ca.bat`: lệnh chạy. `ket_qua/cau_thu_<ngày>_<giờ>/`: ảnh mỗi lần chạy. `ghi_hinh/thu_*`: các lần ghi thử (Mồi chưa đủ, Ba lô đã đầy…).
+- `cau_ca.bat`: lệnh chạy. `ket_qua/cau_thu_<ngày>_<giờ>/`: ảnh mỗi lần chạy (tự xoá thư mục cũ hơn 7 ngày mỗi lần chạy, `-GiuNgay`; `ghi_hinh/` không bị xoá). `ghi_hinh/thu_*`: các lần ghi thử (Mồi chưa đủ, Ba lô đã đầy…).
 - `ghi_hinh/ghi_cham_1fps/`: lần 1 (12:55–13:00), khoảng 1 ảnh mỗi giây, ảnh 960x540.
   - Đi từ sảnh tới cầu tàu, câu 3 con, để tuột 1 con vì không bấm Kéo cần.
 - `ghi_hinh/ghi_nhanh_17fps/`: lần 2 (13:17:53–13:19:08), khoảng 17 ảnh mỗi giây, ảnh 640x360.

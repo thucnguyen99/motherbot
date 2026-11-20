@@ -116,7 +116,7 @@ $MaintPopupMaxScore = 12 # nguong khop mau popup bao tri (templates\popup_baotri
 $MinFreeRamMB  = 2500   # RAM trong (Available) toi thieu
 $MinFreeDiskGB = 5      # dung luong trong toi thieu o C: va o chua script
 # Don log: xoa log + anh cac lan chay cu hon $KeepLogDays ngay (state\lich_su.jsonl cho /thongke duoc giu lai)
-$KeepLogDays   = 14
+$KeepLogDays   = 7       # 20/11: 14 -> 7 (anh ~100-350 MB/ngay)
 
 # Thao tac giong nguoi (giam rui ro bi nhan ra la auto):
 #  $DirectTouch: bam bang cach ghi thang su kien cham vao thiet bi cam ung cua MuMu ("Xiaomi Input" = dung duong click chuot that)

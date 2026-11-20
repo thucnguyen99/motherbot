@@ -590,7 +590,7 @@ Mỗi lần chạy tạo `logs\run_<ngày>_<giờ>.log`, kèm ảnh:
 - `..._stepNN_*.png`: ảnh từng bước, chỉ có khi chạy với `-StepShots`.
 - `..._xem_ruong.png`: ảnh chụp bằng `/xemruong` (`-ViewOnly`).
 
-**Tự dọn log:** mỗi lần chạy, script xoá `run_*.log` và ảnh `yyyyMMdd_HHmmss_*.png` **cũ hơn 14 ngày** (`$KeepLogDays`, đặt `0` = không xoá). Không xoá `bot.log`, `bot_offset.txt`, tin chờ gửi bù và file khác. Ước tính ~10–15 MB/ngày với 3 lượt/ngày, nên `logs\` giữ ở khoảng 200 MB.
+**Tự dọn log:** mỗi lần chạy, script xoá `run_*.log` và ảnh `yyyyMMdd_HHmmss_*.png` **cũ hơn 7 ngày** (`$KeepLogDays`, đặt `0` = không xoá; 14 → 7 từ 20/11). Không xoá `bot.log`, `bot_offset.txt`, tin chờ gửi bù và file khác. Ước tính ~10–15 MB/ngày với 3 lượt/ngày, nên `logs\` giữ ở khoảng 200 MB.
 
 **Lịch sử chạy:** mỗi lượt (trừ `-LoginOnly`, `-SkipLaunch`, tài khoản `zz_*`) ghi 1 dòng vào `state\lich_su.jsonl` (giờ bắt đầu/kết thúc, tài khoản, kết quả, số ô thu hoạch, gieo hay không, số mầm, phút chờ chín, lỗi). File này **không bị dọn**, dùng cho `/thongke`. Lịch sử trước 18/11/2026 được tạo lại từ log cũ; 4 lượt "Không vào được sảnh chính" đêm 17–18/11 được ghi là *mất mạng* (đã xác định do Wi-Fi rớt sau khi máy thức dậy).
 
@@ -733,7 +733,7 @@ Cấu hình đầu `ddtank_farm.ps1`:
 | `$MaintPopupMaxScore` | `12` | Ngưỡng khớp ảnh mẫu popup bảo trì (popup thật: 0; các popup *Nhắc nhở* khác: ≥ 18,6) |
 | `$MinFreeRamMB` | `2500` | RAM trống tối thiểu trước khi mở MuMu; thấp hơn thì cảnh báo trên Telegram (vẫn chạy) |
 | `$MinFreeDiskGB` | `5` | Dung lượng trống tối thiểu ổ C: và ổ chứa script; thấp hơn thì cảnh báo |
-| `$KeepLogDays` | `14` | Xoá log + ảnh các lần chạy cũ hơn bao nhiêu ngày (0 = không xoá) |
+| `$KeepLogDays` | `7` | Xoá log + ảnh các lần chạy cũ hơn bao nhiêu ngày (0 = không xoá) |
 | `$PlotOffsets` | 10 cặp toạ độ | Vị trí 10 ô đất so với biển gỗ |
 | `$CareOnView` | `$true` | `/xemruong` thấy giọt nước / con sâu thì bấm 1 cái để tưới cây + bắt sâu cả ruộng. `$false` = chỉ xem |
 | `$WaterMaxScore` / `$BugMaxScore` | `20` / `28` | Ngưỡng nhận diện ảnh mẫu `templates\water.png` (giọt nước) / `templates\bug.png` (con sâu) |
@@ -769,7 +769,7 @@ Danh sách đề xuất ngày 18/11/2026. Cập nhật trạng thái mỗi khi l
 | 30 | Đóng popup hiện muộn ở sảnh (vd *Báo danh mỗi ngày*); xử lý game tự đăng nhập bằng phiên cũ | ✅ | Gặp và sửa trong lượt 18/11 16:20–16:27. Test lại 18/11 16:51 sau giờ reset ngày (16:00) trên tài khoản server S574 chưa báo danh: đóng popup *Nạp lần đầu* (bấm ✕, không bấm *Nạp ngay*), rồi popup *Báo danh mỗi ngày* hiện 2 lần (lần đầu ✕ thì game đóng dấu *Đã báo danh*, *Còn 12 → 11 lần*; lần sau ✕ mới đóng), vào sảnh, vào nông trại bình thường |
 | 3 | Tự đóng popup lạ (sự kiện mới) + gửi ảnh để bổ sung ảnh mẫu | ⬜ | Cần test với game thật |
 | 4 | Kiểm tra RAM + ổ đĩa trước khi mở MuMu, cảnh báo trên Telegram | ✅ | `$MinFreeRamMB` 2500, `$MinFreeDiskGB` 5 (mục 3, 9) |
-| 5 | Tự dọn log + ảnh cũ hơn 14 ngày; bot.log tự rút gọn | ✅ | `$KeepLogDays` (mục 6) |
+| 5 | Tự dọn log + ảnh cũ hơn 7 ngày (câu cá: `ket_qua` cũ hơn 7 ngày); bot.log tự rút gọn | ✅ | `$KeepLogDays` (mục 6) |
 | 6 | Bot báo khi máy vừa khởi động lại + nguyên nhân (màn hình xanh / mất điện / Update) | ⬜ | `/maytinh` đã hiện số lần tắt bất thường 7 ngày, nhưng chưa tự nhắn |
 | 7 | Cảnh báo "lượt hẹn đã quá giờ mà chưa chạy" | ⬜ | Một phần: lịch dự phòng (dòng 33) |
 | 33 | Giới hạn thời gian cho mọi lệnh adb / MuMuManager; lịch dự phòng sau 50 phút; file ảnh riêng mỗi lượt; dọn adb treo | 🟡 | Sau sự cố 19/11 00:31 (mục 13). Đã kiểm tra lệnh treo bị cắt sau đúng giới hạn; lượt thật 19/11 08:28 chạy thông suốt. Chưa gặp lại thiết bị treo thật |
@@ -916,7 +916,7 @@ Trên máy DELL, các vòng chưa được Tuyệt vời đều là vòng 2–3 
 Mỗi lần câu mất khoảng 11–13 giây, chưa tính các lần nghỉ.
 
 ### Đầu ra
-- `cau_ca\ket_qua\cau_thu_<ngày>_<giờ>\`: mỗi lần chạy một thư mục.
+- `cau_ca\ket_qua\cau_thu_<ngày>_<giờ>\`: mỗi lần chạy một thư mục. **Tự dọn** (từ 20/11): mỗi lần chạy `cau_ca.bat` xoá các thư mục `cau_thu_*` cũ hơn 7 ngày (`cau_thu.ps1 -GiuNgay N`, `0` = không xoá). Không xoá `ghi_hinh\`, `mau\`, `hieu_chinh.csv`, `bu_vong_*.txt`.
   - `log.txt`: toàn bộ nhật ký, gồm thông số lúc chạy, từng bước bấm, **dãy bán kính đo được của từng vòng**, các lần nghỉ, lỗi và tổng kết.
   - `N_0_truoc.jpg`: trước khi câu. `N_vK_sau_bam.jpg`: sau khi bấm vòng K (thấy chữ Tuyệt vời / Xuất sắc / Hụt).
   - `N_3_chuc_mung.jpg` / `N_3_khong_chuc_mung.jpg`: câu được / trượt. `het_moi`, `balo_day`, `loi_…`: lúc bot dừng.
