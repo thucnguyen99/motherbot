@@ -83,3 +83,16 @@ Bot khám phá bằng cách bấm từng bước rồi chụp màn hình bằng 
    - Dùng chung khoá thiết bị, để không chạy chồng lên nông trại hoặc câu cá.
    - Tự bật máy ảo và đăng nhập đúng tài khoản.
    - Gửi Telegram ảnh 3 tổ đội kèm tóm tắt quà nhận được và giờ lần sau. Ghi vào `lich_su.jsonl`.
+
+## Đọc đồng hồ không chắc (sửa 23/11)
+
+- Lượt 23/11 07:58: tổ đội 2 đọc ra `00:01:50` (lệch 9,70 > `$ThTimerMaxDist` 6) → bị bỏ, không chờ, không nhận dù xong lúc ~08:00.
+- Giờ: tổ nào chưa đọc chắc thì chọn tab 3 đọc lại tổ 1, 2. Đọc lệch ≤ `$ThHintMaxDist` (15) chỉ dùng để quyết định ngồi chờ; xong hay chưa vẫn xác nhận bằng nút Nhận / Xuất phát.
+- Trước khi về: tổ đội đang chạy mà không biết giờ → bấm vào kiểm tra lại 1 lần.
+- Ảnh `logs\<giờ>_dong_ho_doiN_khong_doc_duoc.png` vẫn được lưu để bổ sung mẫu chữ số (lệch 9,70 có thể do thiếu mẫu 1 chữ số).
+
+## Đồng bộ 3 tổ đội (23/11, theo yêu cầu)
+
+- `$ThSync = $true`: tổ xong thì chỉ **Nhận**, tổ rảnh thì giữ; chỉ khi không còn tổ nào đang thám hiểm mới **Xuất phát cả 3 cùng lúc** (`ThTeam -NoStart` → `da_nhan` / `ranh`, rồi `ThStart`).
+- Còn tổ đang chạy (quá `$ThWaitMin`) → giữ tổ đã nhận / rảnh, hẹn lại lúc tổ xong **muộn nhất** − 5 phút. Lần đầu đồng bộ có thể để 1 tổ đứng chờ vài tiếng; từ lượt sau 3 tổ về cùng lúc.
+- Test offline đồng hồ giả 4 kịch bản (23/11): chạy lúc tổ 2 đã xong / lượt 19:58 / cả 3 xong / `$ThSync = $false`. Chưa chạy thật.

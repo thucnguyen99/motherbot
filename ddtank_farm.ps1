@@ -1207,19 +1207,36 @@ function Open-SeedPanel {
     Save-Shot "loi_bang_hat"; throw "Không mở được bảng hạt giống"
 }
 
-# Tim hat $key trong bang (cuon xuong toi 5 lan, roi cuon nguoc len). Khong co -> $null (het hat / chua tung co)
+# Tim hat $key trong bang (cho danh sach hien, cuon xuong toi 5 lan, roi cuon nguoc len). Khong co -> $null (het hat / chua tung co)
+# 22-23/11 (4 lan "Khong tim thay hat khoai tay"): bang hat mo (thay tieu de) nhung danh sach chua hien xong,
+# script vuot ngay -> cham ra ngoai bang luc bang con dang truot vao -> game dong bang, 12 lan cuon sau vuot vao khoang trong.
+# Sua: 2 lan dau chi cho (khong vuot); moi vong kiem tra tieu de bang con khong, bang da dong thi mo lai (toi da 2 lan).
 function Find-Seed($title, $key) {
     # KHONG dat ten bien $tpl: PowerShell khong phan biet hoa thuong + pham vi dong -> Find se doc nham thanh $Tpl (thu muc mau)
     $seedTpl = $SeedTypes[$key].Tpl
-    $region = @(($title.X - 220), ($title.Y + 50), 440, 380)
-    for ($k = 0; $k -le 12; $k++) {
+    $reopen = 0
+    $k = 0
+    while ($true) {
+        $region = @(($title.X - 220), ($title.Y + 50), 440, 380)
         Snap | Out-Null
         $r = Find $seedTpl $SeedMaxScore $region
         if ($r.Count) { Log "Hat $key tai ($($r[0].X),$($r[0].Y)) score=$([math]::Round($r[0].Score,1))"; return $r[0] }
-        if ($k -eq 12) { break }
-        if ($k -lt 5) { Log "Chua thay hat $key, cuon danh sach xuong..."; Swipe $title.X ($title.Y + 330) $title.X ($title.Y + 150) 600 }
-        else { Log "Chua thay hat $key, cuon danh sach len..."; Swipe $title.X ($title.Y + 150) $title.X ($title.Y + 330) 600 }
-        Nap 1.5
+        # bang con mo khong (tieu de 360x36 quanh cho cu)
+        $still = Find "seed_panel_title" 15 @(($title.X - 260), ($title.Y - 60), 520, 120)
+        if (-not $still.Count) {
+            if ($reopen -ge 2) { Log "Bang hat tu dong $reopen lan -> thoi tim"; return $null }
+            $reopen++
+            Save-Shot "bang_hat_dong_$reopen"
+            Log "Bang hat bi dong (lan $reopen) -> mo lai, tim lai tu dau"
+            $title = Open-SeedPanel
+            $k = 0
+            continue
+        }
+        if ($k -ge 14) { break }
+        if ($k -lt 2) { Log "Chua thay hat $key, cho danh sach hien..."; Nap 1 }
+        elseif ($k -lt 7) { Log "Chua thay hat $key, cuon danh sach xuong..."; Swipe $title.X ($title.Y + 330) $title.X ($title.Y + 150) 600; Nap 1.5 }
+        else { Log "Chua thay hat $key, cuon danh sach len..."; Swipe $title.X ($title.Y + 150) $title.X ($title.Y + 330) 600; Nap 1.5 }
+        $k++
     }
     return $null
 }
@@ -1435,7 +1452,8 @@ function Plan-NextRun([string]$outcome) {
             $retries = 0
             if ($script:ThNext) {
                 $ripe = $script:ThNext
-                $at = $script:ThNext.AddMinutes($ThDelayMin); $why = "tổ đội xong sớm nhất lúc $($script:ThNext.ToString('HH:mm dd/MM'))$(if ($ThDelayMin -lt 0) { ", vào trước $(-$ThDelayMin) phút rồi chờ" })"
+                $why0 = if ($script:ThNextWhy) { $script:ThNextWhy } else { "tổ đội xong sớm nhất lúc $($script:ThNext.ToString('HH:mm dd/MM'))" }
+                $at = $script:ThNext.AddMinutes($ThDelayMin); $why = "$why0$(if ($ThDelayMin -lt 0) { ", vào trước $(-$ThDelayMin) phút rồi chờ" })"
             } else {
                 $at = $now.AddMinutes($ThRetryMin); $why = "không đọc được giờ tổ đội xong, xem lại sau $ThRetryMin phút"
             }

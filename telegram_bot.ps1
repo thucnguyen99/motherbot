@@ -590,7 +590,7 @@ Các lệnh được phép (ten phải là một trong các tên này):
 - maytinh: RAM, ổ đĩa, CPU, Wi-Fi của máy tính
 - help: danh sách lệnh
 
-Tài khoản đã biết: $accTxt. Người dùng hay gõ tắt / sai chính tả tên tài khoản: chọn tài khoản đã biết giống nhất. Không đoán chắc được tài khoản nào thì không đưa lệnh đó, hỏi lại trong tra_loi.
+Tài khoản đã biết: $accTxt. Người dùng hay gõ tắt / sai chính tả tên tài khoản: chọn tài khoản đã biết giống nhất. Không đoán chắc được tài khoản nào, hoặc tin nhắn không nói tài khoản, thì KHÔNG đưa lệnh đó (lenh = []), chỉ hỏi lại trong tra_loi. Chỉ ra lệnh cho nhiều tài khoản khi người dùng nói rõ "tất cả" / "cả 2".
 Loại hạt (hat dùng đúng key): $seeds.
 Tối đa 3 lệnh, đúng thứ tự người dùng nói. Bỏ trống trường không dùng.
 Nếu trước đó bạn vừa hỏi lại (vd "cho tài khoản nào?") thì tin mới là câu trả lời: ghép với yêu cầu trước để ra lệnh.
