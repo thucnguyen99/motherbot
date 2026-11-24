@@ -1,0 +1,13 @@
+﻿# Thong so ban Con trung dai chien (doc moi lan chay). Toa do: DichX/SaiSoX man 960x540, con lai man 1600x900.
+# Hoc tu 2 tran mau 24/11 (deu 64 diem). Doi o day sau khi xem con_trung\lich_su_ban.csv + anh *_ngam.jpg
+DichX = 272     # x tam thanh mau nhan vat khi dung dung cho ("mom khung long sat chu Khoang cach")
+SaiSoX = 1      # lech toi da cho phep (24/11: x=274 thi nhan 2.5/3.5 thay vi 2.4/3.6 nhu mau -> siet tu 3 xuong 1)
+KeoX = -50      # vector keo (diem tha - diem cham): mau (-50,216) va (-51,215)
+KeoY = 216
+ChamX = -5      # diem cham dau so voi tam thanh mau: mau (-3,-130) va (-9,-147)
+ChamY = -138
+# Tu ngam: dinh cung net dut (so voi tam thanh mau, man 960) cua phat dat 64 (bot 08:36 + nguoi choi 07:58 deu (60,-219)).
+# Keo xong bot giu ngon, do dinh cung, chinh luc/goc toi khi lech <= 5px roi moi tha -> doi trang phuc van ban dung.
+# Phat nao dat 64 thi bot tu ghi lai KeoX/KeoY o tren (diem bat dau lan sau).
+DinhX = 60
+DinhY = -219   # trang phuc cu (khung long) dat 64. Trang phuc moi chua co mau dat 64 (09:01-09:08 thu -202..-222: 30/60/52/44 diem)

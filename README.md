@@ -1058,3 +1058,38 @@ Mỗi lượt nông trại, vào sảnh xong bot làm thêm một bước trư�
 - **Lỗi ở bước này không làm hỏng lượt nông trại:** bot ghi "⚠️ Thánh vật lỗi…" rồi vẫn thu hoạch bình thường.
 - Tắt: đặt `$ThanhVat = $false` ở phần CẤU HÌNH trong `ddtank_farm.ps1`.
 - Chi tiết kỹ thuật, toạ độ và ngưỡng: `thanh_vat\GHI_CHU.md`. **Chưa chạy thử trong một lượt nông trại thật.**
+
+## 16. Côn trùng Đại chiến: bắt sâu bọ (chạy riêng)
+
+Mỗi ván bắn **1 Lưới**. **Điểm bắt sâu 64 = đạt**, thấp hơn là không đạt.
+
+### Chạy
+Thiết bị `auto` đang bật, nhân vật ở **sảnh chính** hoặc **quảng trường côn trùng**:
+```powershell
+.\con_trung\con_trung.bat 5              # 5 ván
+.\con_trung\con_trung.bat 1 -KhongLuoi   # bắn thử: chỉ kéo thả, KHÔNG dùng lưới
+```
+
+### Bot làm gì mỗi ván
+1. Sảnh → thẻ chế độ → "Côn trùng Đại chiến" → quảng trường.
+   - Chờ hết "Đếm ngược", rồi chạm vào **bọ rùa**; không có bọ rùa thì chạm **bướm**. Bot đuổi theo con bọ đang chạy.
+   - Không thấy con nào thì cho nhân vật đi chỗ khác để camera lia.
+2. Trong trận có 3 lượt, mỗi lượt 15 giây. Tới lượt khi **PASS sáng và đồng hồ cam đang chạy**.
+3. Di chuyển tới **chỗ đứng**: tâm thanh máu x = 272 ở màn 960, sai lệch ±1 px ("miệng khủng long sát chữ Khoảng cách").
+   - Giữ nút ▶ theo thời gian tính từ tốc độ tự đo. **Bước cuối luôn sang phải** để mặt quay phải.
+   - Thể lực có hạn: đứng xa thì lượt sau đi tiếp.
+4. Bấm Lưới, kéo từ nhân vật xuống dưới trái theo đường tay người chơi, rồi **tự ngắm**: đo đỉnh cung nét đứt, chỉnh tới khi lệch ≤ 5 px mới thả.
+5. Đọc điểm theo nét chữ xanh. Đạt 64 hoặc đã dùng lưới thì các lượt sau PASS. Gặp "Chiến thắng" thì chạm tiếp tục.
+
+### Bot tự dừng khi
+- **Bắn lưới mà điểm vẫn 0**: nghi hết lưới (hết lưới thì bắn không có điểm).
+- Không vào được trận sau 12 lần tìm bọ.
+
+### Lưu ý
+- **Dùng trang phục cưỡi khủng long.** Ngày 24/11, 5/5 rồi 5/5 ván đạt 64.
+  - Trang phục khác cho đường cung và lưới khác: thử ra 30–60 điểm.
+  - Muốn dùng trang phục khác thì quay mẫu 1 ván 64, lấy đỉnh cung cho `DinhX` / `DinhY`.
+- Thông số chỉnh được: `con_trung\thong_so.txt`.
+- Mỗi phát ghi vào `con_trung\lich_su_ban.csv`, ảnh và log ở `con_trung\ket_qua\`.
+- Chi tiết, ngưỡng và các lỗi đã sửa: `con_trung\GHI_CHU.md`.
+- Nhận diện dùng chung `tuong_da\cong_cu\TdVision.cs`.
