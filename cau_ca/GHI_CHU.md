@@ -148,3 +148,26 @@ Ghẹ 181g, Ghẹ 185g, Tôm 54g, Cá mòi 112g, Cá hố 203g, Cá hố 286g, C
   - Lần Hụt duy nhất (lần 22, vòng 3): luồng hình khựng 0,11 s ngay sau điểm đầu (75 @ −0,01 s, rồi 68 @ 0,10 s, 61, 54…).
     - Đường thẳng kẻ qua cả điểm cũ cho tốc độ 189 px/s, trong khi tốc độ thật khoảng 300 px/s → bấm muộn.
     - Sửa: khi tính tốc độ, bỏ các điểm đứng trước khoảng khựng > 0,085 s nếu sau đó còn ≥ 3 điểm. **Chưa chạy thử**: game thoát ra màn đăng nhập lúc 22:36.
+
+## 20/11: Ba lô đầy thì dọn (`-BaloDay don`)
+- Thử tay lúc 21:4x: Ba lô (HUD chỗ câu, (1505, 550)) → mở ở **tab Mùa vụ** (hạt giống, nông sản) → tab **Cá** (1525, 415) → **Loại bỏ** (1287, 177) → tick **Tất cả** (800, 180) → **Xác nhận** (1306, 177) → hộp "Nhắc nhở: Bạn có chắc chắn muốn thả cá đã chọn?" → **Xác nhận** (998, 607) → "Thả thành công" → **Quay lại** (75, 45) về chỗ câu.
+- **Ô đầu tab Cá là Mồi (1139 con). Tick "Tất cả" không chọn Mồi:** thả xong Mồi vẫn đủ 1139.
+- Bot vẫn có **chốt chặn trước Xác nhận**: ô đầu phải khớp ảnh Mồi (`balo_o_moi`, ngưỡng 15) và không có dấu tick (điểm xanh lá ≤ 60). Ô cá có tick: 230 điểm; ô Mồi: 0. Sai thì Hủy, không thả.
+- Ảnh mẫu `mau/balo_*.png` (640x360) cắt từ ảnh chụp 1600x900 thu nhỏ. Kiểm tra cách này: chỗ câu thu nhỏ khớp nút lưới 20,4, luồng hình thật 20,1. Đúng chỗ 0–1,8; chỗ khác ≥ 23.
+- Mặc định vẫn là `-BaloDay dung` (dừng như cũ). `don`: tối đa 5 lần/lượt; lần câu bị gián đoạn không tính, câu lại đúng số thứ tự.
+- **Chưa chạy thử khi ba lô đầy thật** (lúc viết, ba lô vừa được dọn tay).
+
+## 20–23/11: chạy thật dọn ba lô và các sửa kèm theo
+- **Dọn ba lô chạy được** (20/11 23:16, lần đầu chạy thật): khoảng 12–13 s mỗi lần.
+  - Nút Ba lô dùng mẫu **chỉ lấy lõi biểu tượng** (`balo_nut_loi`). Mẫu có nền lệch 24,4 khi nhân vật đứng chỗ khác.
+  - Tick "Tất cả" **mặc định không chọn Mồi** (người chơi xác nhận; 9/9 lần ô Mồi có 0 điểm xanh). Mồi không luôn ở ô đầu: cá mới ("NEW") xếp lên trước, nên lần dọn thứ hai trong lượt bị chốt cũ chặn 8/8 lần. Đã bỏ chốt "Mồi phải ở ô đầu". Chỉ còn hủy nếu thấy ô Mồi có dấu tick.
+  - Bấm Loại bỏ có lúc game hỏi **mật khẩu cấp 2** ("Xác minh danh tính", mẫu `balo_mat_khau`). Bot **không bao giờ nhập**: đóng bảng, dừng, báo người chơi nhập tay 1 lần (trong phiên đó game không hỏi lại).
+- **Chúc mừng hiện muộn** (Cá ngựa kỷ lục, 20/11 23:18): game về màn câu rồi mới hiện bảng nên bot tưởng TRUOT.
+  - Nhận bảng bằng dòng "Nhấn để tiếp tục" (`nhan_tiep_tuc`: chúc mừng 0–19,9, màn khác ≥ 58).
+  - Chờ tới 5 s. Đầu lần câu sau còn bảng thì bấm tiếp tục.
+- **Bước học bù vòng** (22/11 mức bù dao động mạnh, vòng vừa còn 55/99 Tuyệt vời):
+  - Bước học: Xuất sắc −0,25, Hụt +0,75.
+  - Chặn khoảng: `cham` [−2,3], `vua` [−3,2], `nhanh` [−6,0], `thua_cham` [−2,4], `thua_vua` [0,9], `thua_nhanh` [−2,8].
+  - Đặt lại `vua` −1, `nhanh` −3,5.
+  - 23/11 sau khi sửa: 167/170 con, rất ít Xuất sắc.
+- **Lỗi thời gian nghỉ**: `[string[]]` trong param gán lại vẫn là chuỗi, nên `"35" + 1 = "351"` → nghỉ 25–350 s, và NghiSau thành 10–200. Đã ép `[int[]]`. 23/11 sau khi sửa: nghỉ 25–32 s.

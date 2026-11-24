@@ -7,11 +7,16 @@
 # Moi vong bam ghi them 1 dong vao hieu_chinh.csv (ca day ban kinh) de phan tich cac lan Hut / Xuat sac.
 # Tu don: xoa thu muc ket_qua\cau_thu_* cu hon -GiuNgay ngay (mac dinh 7, 0 = khong xoa).
 #   Khong dung ghi_hinh\ (mau cho cong cu test offline), mau\, hieu_chinh.csv, bu_vong_*.txt.
+#   -BaloDay dung    : (mac dinh) game bao "Ba lo da day" thi dung luot cau
+#   -BaloDay don     : Ba lo -> Ca -> Loai bo -> Tat ca -> Xac nhan (THA HET CA, giu Moi) roi cau tiep (toi da 5 lan/luot)
 param([int]$N = 3, [string]$ThietBi = "auto", [string]$Serial = "", [int]$TargetR = 11, [double]$LeadSec = 0.12, [switch]$SlowTap,
-      [string[]]$NghiSau = @(12, 20), [string[]]$NghiGiay = @(20, 90), [switch]$KhongNguoi, [int]$GiuNgay = 7)
+      [string[]]$NghiSau = @(12, 20), [string[]]$NghiGiay = @(20, 90), [switch]$KhongNguoi, [int]$GiuNgay = 7,
+      [ValidateSet('dung', 'don')][string]$BaloDay = 'dung')
 # Goi qua "powershell -File ... -NghiSau 20,30" thi "20,30" toi day la 1 chuoi (de [int[]] se thanh 2030) -> tu tach thanh [min, max]
 function Khoang([string[]]$v) { $n = [int[]]($v -split '[,;\s-]+' | Where-Object { $_ }); if ($n.Count -eq 1) { $n += $n[0] }; @($n[0], $n[1]) }
-$NghiSau = Khoang $NghiSau; $NghiGiay = Khoang $NghiGiay
+# PHAI ep [int[]]: bien khai bao [string[]] trong param -> gan lai van la chuoi -> "35" + 1 = "351"
+# (23/11: NghiGiay 25-35 ma nghi 133 giay; NghiSau 10-20 thanh 10-200)
+[int[]]$NghiSau = Khoang $NghiSau; [int[]]$NghiGiay = Khoang $NghiGiay
 # MuMu cai o C: hay D: tuy may -> tim tren moi o dia
 $MuMuDir = Get-PSDrive -PSProvider FileSystem | ForEach-Object { Join-Path $_.Root "Program Files\Netease\MuMuPlayer\nx_main" } |
     Where-Object { Test-Path (Join-Path $_ "MuMuManager.exe") } | Select-Object -First 1
@@ -26,7 +31,7 @@ function Say([string]$m, [switch]$NoTime) {
     Write-Host $line
     Add-Content -Path $LogFile -Value $line -Encoding UTF8
 }
-Say ("===== CAU CA {0:yyyy-MM-dd HH:mm:ss}: N={1} ThietBi={2} TargetR={3} LeadSec={4} GiaLapNguoi={5} BamNhanh={6} NghiSau={7} NghiGiay={8} =====" -f (Get-Date), $N, $ThietBi, $TargetR, $LeadSec, (-not $KhongNguoi), (-not $SlowTap), ($NghiSau -join '-'), ($NghiGiay -join '-')) -NoTime
+Say ("===== CAU CA {0:yyyy-MM-dd HH:mm:ss}: N={1} ThietBi={2} TargetR={3} LeadSec={4} GiaLapNguoi={5} BamNhanh={6} NghiSau={7} NghiGiay={8} BaloDay={9} =====" -f (Get-Date), $N, $ThietBi, $TargetR, $LeadSec, (-not $KhongNguoi), (-not $SlowTap), ($NghiSau -join '-'), ($NghiGiay -join '-'), $BaloDay) -NoTime
 if ($GiuNgay -gt 0) {
     try {
         $cut = (Get-Date).AddDays(-$GiuNgay)
@@ -58,6 +63,7 @@ $body = ($srcLines | Where-Object { $_ -notmatch '^using ' }) -join "`n"
 Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition ($usings + "`n" + $body)
 $f = New-Object Fisher $adb, $Serial, $out, (Join-Path (Split-Path $PSScriptRoot) "mau")
 $f.TargetR = $TargetR; $f.TapLatency = $LeadSec; $f.FastTap = -not $SlowTap; $f.Human = -not $KhongNguoi
+$f.ClearBagOnFull = ($BaloDay -eq 'don')
 
 # hieu_chinh.csv: moi vong bam 1 dong. Cot moi (18/11 15:40): nguoi (1 = gia lap nguoi), vet_ban_kinh ("giay:ban_kinh ..."), lan_chay (thu muc ket_qua)
 $f.CsvPath = Join-Path (Split-Path $PSScriptRoot) "hieu_chinh.csv"
@@ -82,6 +88,7 @@ try {
         $r = $f.CastOnce($i)
         Say "  -> $r" -NoTime
         if ($r -like 'LOI*' -or $r -like 'HET MOI*' -or $r -like 'BALO DAY*') { break }
+        if ($r -like 'DON BALO*') { $i--; continue }   # vua tha het ca: lan nay chua cau -> cau lai dung so thu tu
         $tong++; if ($r -eq 'OK') { $duoc++ }
         if (-not $KhongNguoi -and $i -lt $N -and $i -ge $nextBreak) {
             $s = Get-Random -Minimum $NghiGiay[0] -Maximum ($NghiGiay[1] + 1)
@@ -94,5 +101,7 @@ try {
     Say "LOI KHONG MONG DOI: $($_.Exception.InnerException.Message) $($_.Exception.Message)"
 } finally { $f.Stop() }
 Say ("Cau duoc: {0}/{1} con. Cham diem cac vong: {2}" -f $duoc, $tong, (($f.Ratings.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ', ')) -NoTime
+if ($f.BagClears) { Say "Don ba lo (tha het ca): $($f.BagClears) lan" -NoTime }
+if ($f.LateCatches) { Say "Chuc mung hien muon (lan truoc ghi TRUOT nhung thuc ra cau duoc): $($f.LateCatches) lan" -NoTime }
 Say "Bu vong sau lan chay: $($f.AdjText())" -NoTime
 Say "Anh + log: $out" -NoTime

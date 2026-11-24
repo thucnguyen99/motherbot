@@ -27,7 +27,7 @@ public class Fisher
     bool BagFull(byte[] p) { return Ring.MatchAt(p, W, H, tBag, tBagW, tBagH, 265, 90, 8) < 15; }      // thong bao "Ba lo da day" (khop 0; "Moi chua du" 33; khac ~81)
     public Fisher(string adb, string serial, string outDir, string tplDir)
     {
-        this.adb = adb; this.serial = serial; this.outDir = outDir; Directory.CreateDirectory(outDir);
+        this.adb = adb; this.serial = serial; this.outDir = outDir; this.tplDir = tplDir; Directory.CreateDirectory(outDir);
         tWait = Ring.LoadRgb(Path.Combine(tplDir, "doi_ca.png"), out tWaitW, out tWaitH);     // chu "Doi ca can cau..." (dang doi)
         tIdle = Ring.LoadRgb(Path.Combine(tplDir, "nut_luoi.png"), out tIdleW, out tIdleH);   // nut "Cau ca bang luoi" (chi hien khi cho bat dau)
         tBait = Ring.LoadRgb(Path.Combine(tplDir, "het_moi.png"), out tBaitW, out tBaitH);    // thong bao "Moi chua du"
@@ -140,6 +140,10 @@ public class Fisher
 
     // ---------- trang thai ----------
     static bool Dark(byte[] p) { return Ring.Bright(p, W, H) < 120; }
+    // Man "Chuc mung!" (cau duoc ca): toi HOAC co dong "Nhan de tiep tuc" goc duoi phai (mau nhan_tiep_tuc: chuc mung 0-19.9,
+    // man khac >= 58). 20/11 23:18: Ca ngua (ky luc) -> man chuc mung sang + hien MUON (sau khi ve man cau) -> ban cu tuong truot.
+    bool Congrats(byte[] p) { return Dark(p) || Score(p, "nhan_tiep_tuc", 505, 320, 6) < 35; }
+    public int LateCatches = 0;   // so lan bang Chuc mung hien muon (da tinh la TRUOT o lan truoc)
     static bool Ball(byte[] p) { int x, y; return Ring.FindBall(p, W, H, out x, out y); }
     static bool Pull(byte[] p) { int x, y; return Ring.RedCount(p, W, H, out x, out y) >= 750 && !Ball(p); }
 
@@ -207,11 +211,17 @@ public class Fisher
         foreach (var kv in Adj) parts.Add(kv.Key + "=" + kv.Value.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
         return string.Join(" ", parts.ToArray());
     }
+    // Gioi han muc bu tung loai vong. 22/11: buoc hoc -0.5/+1.5 lam bu dao dong manh (vua -2..+4, nhanh -7..-0.5 trong 1 ngay)
+    // -> vong vua 55/99 Tuyet voi, 11 Hut. Giam buoc hoc con -0.25/+0.75 (van can bang Xuat sac ~ 3 lan Hut) + chan khoang.
+    static readonly Dictionary<string, double[]> AdjLimit = new Dictionary<string, double[]> {
+        { "cham", new[] { -2.0, 3.0 } }, { "vua", new[] { -3.0, 2.0 } }, { "nhanh", new[] { -6.0, 0.0 } },
+        { "thua_cham", new[] { -2.0, 4.0 } }, { "thua_vua", new[] { 0.0, 9.0 } }, { "thua_nhanh", new[] { -2.0, 8.0 } } };
     void Learn(string band, string rt)
     {
-        double d = rt == "Xuat sac" ? -0.5 : rt == "Hut" ? 1.5 : 0;
+        double d = rt == "Xuat sac" ? -0.25 : rt == "Hut" ? 0.75 : 0;
         if (d == 0) return;
-        Adj[band] = Math.Max(-10, Math.Min(10, AdjFor(band) + d));
+        double[] lim; if (!AdjLimit.TryGetValue(band, out lim)) lim = new[] { -10.0, 10.0 };
+        Adj[band] = Math.Max(lim[0], Math.Min(lim[1], AdjFor(band) + d));
         Log(string.Format(System.Globalization.CultureInfo.InvariantCulture, "  bu vong '{0}' -> {1:0.0} px", band, Adj[band]));
         SaveAdj();
     }
@@ -402,6 +412,139 @@ public class Fisher
     string LastBand = "";    // "loai_vong:bu_px:khoang_cach_do_s" luc bam
     public string CsvPath;   // ghi moi vong: gio, lan, vong, r_du_doan, r_cuoi, toc_do, ngoai_suy_s, TargetR, TapLatency, ket_qua
 
+    // ---------- don ba lo khi day (-BaloDay don) ----------
+    // Ba lo (HUD cho cau) -> tab Ca (ba lo mo o tab Mua vu!) -> Loai bo -> tick Tat ca -> Xac nhan ->
+    // hop "Ban co chac chan muon tha ca da chon?" -> Xac nhan -> "Tha thanh cong" -> Quay lai ve cho cau.
+    // Tick "Tat ca" KHONG chon Moi (o dau tab Ca; 20/11 tha thu: moi 1139 con nguyen). Van kiem tra truoc khi Xac nhan:
+    // o dau phai la Moi va KHONG co dau tick (diem xanh la: o co tick 230, o moi 0) -> sai thi Huy bo, KHONG tha.
+    // Anh mau balo_*.png (640x360, cat tu anh chup 1600x900 thu nho, khop lai luong hinh 20/11): dung cho 0-1.8, cho khac >= 23.
+    public bool ClearBagOnFull = false;
+    public int MaxBagClears = 5;
+    public int BagClears = 0;
+    string ClearNote = null;      // ly do don ba lo khong duoc (vd game hoi mat khau cap 2)
+    string tplDir;
+    readonly Dictionary<string, KeyValuePair<byte[], int[]>> tpls = new Dictionary<string, KeyValuePair<byte[], int[]>>();
+
+    double Score(byte[] p, string name, int x0, int y0, int r = 4)
+    {
+        KeyValuePair<byte[], int[]> t;
+        if (!tpls.TryGetValue(name, out t))
+        {
+            int w, h; var b = Ring.LoadRgb(Path.Combine(tplDir, name + ".png"), out w, out h);
+            t = new KeyValuePair<byte[], int[]>(b, new[] { w, h }); tpls[name] = t;
+        }
+        return Ring.MatchAt(p, W, H, t.Key, t.Value[0], t.Value[1], x0, y0, r);
+    }
+    // so diem xanh la (dau tick) trong 1 o 45x44 cua luoi Ba lo
+    static int TickGreen(byte[] p, int x0, int y0)
+    {
+        int n = 0;
+        for (int y = y0; y < y0 + 44; y++) for (int x = x0; x < x0 + 45; x++)
+        { int i = (y * W + x) * 3; if (p[i + 1] > 170 && p[i] < 110 && p[i + 2] < 110) n++; }
+        return n;
+    }
+    // Tim o Moi trong luoi tab Ca (o: x = 298 + 54*cot, y = 98 + 53*hang, 5 cot; chi 4 hang tren - hang 5 bi cat mep duoi,
+    // khong dem dung dau tick). Tra ve {x0, y0, diem khop} hoac null. Mau balo_o_moi: o Moi 0-11.7, o ca >= 60.
+    int[] FindBaitCell(byte[] p)
+    {
+        int[] best = null; double bs = 15;
+        for (int r = 0; r < 4; r++)
+            for (int c = 0; c < 5; c++)
+            {
+                int x0 = 298 + c * 54, y0 = 98 + r * 53;
+                double s = Score(p, "balo_o_moi", x0, y0, 5);
+                if (s < bs) { bs = s; best = new[] { x0, y0, (int)Math.Round(s) }; }
+            }
+        return best;
+    }
+    bool InBag(byte[] p) { return Score(p, "balo_tab_ca", 586, 136) < 15 && Score(p, "balo_loai_bo", 485, 60) < 15; }   // tab Ca, che do xem
+    bool InSelect(byte[] p) { return Score(p, "balo_o_trong", 310, 62) < 13 || Score(p, "balo_o_tick", 310, 62) < 13; } // che do chon loai bo
+
+    // Thoat Ba lo ve cho cau (Huy che do chon neu dang chon, Quay lai toi khi thay nut "Cau ca bang luoi")
+    bool LeaveBag(ref long last)
+    {
+        DateTime t;
+        for (int k = 0; k < 4; k++)
+        {
+            var p = Next(ref last, out t);
+            if (Idle(p)) return true;
+            if (Score(p, "balo_hoi_tha", 194, 166) < 20) { Log("  Huy hop tha ca"); Tap(602, 607, 8); }   // hop xac nhan con mo -> Huy
+            else if (InSelect(p)) { Log("  Huy che do chon"); Tap(1157, 177, 6); }
+            else { Log("  Quay lai"); Tap(75, 45, 8); }
+            SleepRnd(1200, 1800);
+        }
+        var q = WaitFor(Idle, 4, "cho cau", ref last, out t);
+        return q != null;
+    }
+
+    bool ClearBag(int no, ref long last)
+    {
+        DateTime t; byte[] p;
+        Log("Ba lo day -> don: Ba lo -> Ca -> Loai bo -> Tat ca -> Xac nhan (lan " + (BagClears + 1) + ")");
+        SleepRnd(1500, 2500);   // cho thong bao "Ba lo da day" tat
+        p = Next(ref last, out t);
+        // chi lay LOI bieu tuong (balo_nut_loi): mau co nen (balo_nut) lech 24.4 khi nhan vat dung cho khac (20/11 22:58) -> bao nham "khong thay"
+        // loi: cho cau 0-13.9, dang mo ba lo >= 50
+        if (Score(p, "balo_nut_loi", 590, 203) > 25) { SaveFrame(p, no + "_don_khong_thay_balo"); Log("  Khong thay nut Ba lo"); return false; }
+        Log("  Bam Ba lo"); Tap(1505, 550, 8);
+        p = WaitFor(q => Score(q, "balo_nut_loi", 590, 203) > 35, 5, "mo ba lo", ref last, out t);
+        if (p == null) { Log("  Ba lo khong mo"); return false; }
+        SleepRnd(700, 1200);
+        // 1. tab Ca (ba lo mo o tab Mua vu: hat giong / nong san -> KHONG BAO GIO loai bo o day)
+        Log("  Bam tab Ca"); Tap(1525, 415, 8);
+        p = WaitFor(InBag, 5, "tab Ca", ref last, out t);
+        if (p == null) { SaveFrame(Next(ref last, out t), no + "_don_khong_thay_tab_ca"); Log("  Khong vao duoc tab Ca"); LeaveBag(ref last); return false; }
+        SleepRnd(500, 900);
+        // 2. Loai bo -> che do chon
+        Log("  Bam Loai bo"); Tap(1287, 177, 8);
+        // 20/11 23:15: bam Loai bo -> game hoi MAT KHAU CAP 2 ("Xac minh danh tinh", ban phim so). Bot KHONG BAO GIO nhap mat khau:
+        // dong bang, thoat ba lo, bao nguoi choi nhap tay 1 lan (sau do trong phien game khong hoi lai) roi chay lai.
+        p = WaitFor(q => InSelect(q) || Score(q, "balo_mat_khau", 262, 54) < 25, 5, "che do chon", ref last, out t);
+        if (p != null && Score(p, "balo_mat_khau", 262, 54) < 25)
+        {
+            SaveFrame(p, no + "_don_mat_khau");
+            Log("  !!! Game hoi mat khau cap 2 (Xac minh danh tinh) -> KHONG nhap, dong bang. Nhap tay 1 lan roi chay lai");
+            ClearNote = "game hoi mat khau cap 2 - nhap tay 1 lan roi chay lai";
+            Tap(1132, 142, 4); SleepRnd(800, 1200);   // nut X cua bang
+            LeaveBag(ref last); return false;
+        }
+        if (p == null) { SaveFrame(Next(ref last, out t), no + "_don_khong_chon_duoc"); Log("  Khong vao che do chon"); LeaveBag(ref last); return false; }
+        SleepRnd(500, 900);
+        // 3. tick Tat ca
+        if (Score(p, "balo_o_tick", 310, 62) >= 13) { Log("  Tick Tat ca"); Tap(800, 180, 5); }
+        p = WaitFor(q => Score(q, "balo_o_tick", 310, 62) < 13 && Score(q, "balo_xac_nhan", 502, 60) < 15, 4, "da chon", ref last, out t);
+        if (p == null) { SaveFrame(Next(ref last, out t), no + "_don_khong_co_ca"); Log("  Tick Tat ca ma nut Xac nhan khong sang (khong co ca?)"); LeaveBag(ref last); return false; }
+        SleepRnd(400, 800);
+        p = Next(ref last, out t);
+        // 4. Tick "Tat ca" mac dinh KHONG chon Moi (nguoi choi xac nhan 23/11; 9 lan don: o Moi 0 diem xanh) -> khong can bo chon tay.
+        //    Moi khong luon o o dau (ca moi "NEW" xep len truoc) -> khong bat Moi phai o o dau, khong cuon tim.
+        //    Chi 1 kiem tra nhe: neu THAY o Moi trong 4 hang dang hien ma lai co dau tick (khong le xay ra) -> Huy.
+        int[] bait = FindBaitCell(p);
+        if (bait != null && TickGreen(p, bait[0], bait[1]) > 60)
+        {
+            SaveFrame(p, no + "_don_moi_bi_chon");
+            Log(string.Format("  !!! Moi bi tick (o {0},{1}) -> Huy, KHONG tha", bait[0], bait[1]));
+            LeaveBag(ref last); return false;
+        }
+        SaveFrame(p, no + "_don_da_chon");
+        Log("  Da chon tat ca ca (Moi mac dinh khong chon" + (bait != null ? string.Format(", thay o Moi ({0},{1}) khong tick", bait[0], bait[1]) : "") + ") -> bam Xac nhan");
+        Tap(1306, 177, 6);
+        // 5. hop "Ban co chac chan muon tha ca da chon?"
+        p = WaitFor(q => Score(q, "balo_hoi_tha", 194, 166) < 20, 4, "hop tha ca", ref last, out t);
+        if (p == null) { SaveFrame(Next(ref last, out t), no + "_don_khong_hoi"); Log("  Khong thay hop xac nhan tha ca"); LeaveBag(ref last); return false; }
+        SleepRnd(500, 1000);
+        Log("  Xac nhan tha ca"); Tap(998, 607, 10);
+        // 6. tha xong: het hop hoi, ve lai che do xem (nut Loai bo)
+        p = WaitFor(q => Score(q, "balo_hoi_tha", 194, 166) > 30 && Score(q, "balo_loai_bo", 485, 60) < 15, 5, "tha xong", ref last, out t);
+        if (p != null) { SleepRnd(800, 1200); SaveFrame(Next(ref last, out t), no + "_don_xong"); Log("  Tha thanh cong"); }
+        else Log("  Chua thay man sau khi tha (van ve cho cau)");
+        // 7. ve cho cau
+        SleepRnd(600, 1200);
+        if (!LeaveBag(ref last)) { SaveFrame(Next(ref last, out t), no + "_don_khong_ve_cho_cau"); Log("  Khong ve duoc cho cau"); return false; }
+        Log("  Da ve cho cau -> cau tiep");
+        return p != null;
+    }
+
     // Mot lan cau. Tra ve mo ta ket qua
     public string CastOnce(int no)
     {
@@ -412,6 +555,13 @@ public class Fisher
         while ((DateTime.Now - stable).TotalSeconds < 1.0)
         {
             p = Next(ref last, out t);
+            if (Congrats(p))
+            {
+                // bang Chuc mung cua lan truoc hien muon, con che man hinh -> bam tiep tuc roi cho nut Bat dau
+                LateCatches++; SaveFrame(p, no + "_chuc_mung_muon");
+                Log("Bang Chuc mung (lan truoc, hien muon) con mo -> bam Nhan de tiep tuc tai " + Tap(1435, 830));
+                SleepRnd(1500, 2200); stable = DateTime.Now; continue;
+            }
             if (!Idle(p)) stable = DateTime.Now;
             if (DateTime.Now > dlIdle) { SaveFrame(p, no + "_loi_khong_o_cho_cau"); return string.Format("LOI: khong thay nut Bat dau cau ca (khong dung o cho cau?) - diem khop nut luoi {0:0.0}, can < 35", IdleScore(p)); }
         }
@@ -430,7 +580,17 @@ public class Fisher
             {
                 p = Next(ref last, out t);
                 if (NoBait(p)) { noBait = true; break; }
-                if (BagFull(p)) { SaveFrame(p, no + "_balo_day"); return "BALO DAY (game bao \"Ba lo da day\")"; }
+                if (BagFull(p))
+                {
+                    SaveFrame(p, no + "_balo_day");
+                    // -BaloDay don: tha het ca trong Ba lo roi cau tiep (toi da $MaxBagClears lan/luot, phong lap vo han)
+                    if (ClearBagOnFull && BagClears < MaxBagClears)
+                    {
+                        if (ClearBag(no, ref last)) { BagClears++; return "DON BALO (da tha het ca, cau tiep)"; }
+                        return "BALO DAY (" + (ClearNote ?? "don ba lo khong duoc - xem anh " + no + "_don_*") + ")";
+                    }
+                    return "BALO DAY (game bao \"Ba lo da day\")";
+                }
                 // da bat dau = nut "Cau ca bang luoi" bien mat lien tuc 0.5s (chu "Doi ca can cau" doi vi tri/nen theo cho dung)
                 if (Idle(p)) gone = DateTime.MinValue;
                 else { if (gone == DateTime.MinValue) gone = DateTime.Now; if ((DateTime.Now - gone).TotalSeconds >= 0.5 || Pull(p)) { started = true; Log(string.Format("  da bat dau (diem khop nut luoi {0:0.0})", IdleScore(p))); break; } }
@@ -469,11 +629,12 @@ public class Fisher
             string rt = Rating(pr); double rtSec = (DateTime.Now - tapAt).TotalSeconds;
             if (rt != null) SaveFrame(pr, no + "_v" + round + "_sau_bam");
             // cho: man toi (xong) / vong sang moi o xa (vong tiep) / mat qua cau qua lau (truot)
-            var dl2 = DateTime.Now.AddSeconds(4); DateTime noBall = DateTime.MinValue; bool nextRound = false;
+            // cho toi 8s: Chuc mung co the hien muon (ca ky luc), mat qua cau 5s moi tinh truot
+            var dl2 = DateTime.Now.AddSeconds(8); DateTime noBall = DateTime.MinValue; bool nextRound = false;
             while (DateTime.Now < dl2)
             {
                 p = Next(ref last, out t);
-                if (Dark(p)) { gotResult = true; break; }
+                if (Congrats(p)) { gotResult = true; break; }
                 if (rt == null && (DateTime.Now - tapAt).TotalSeconds < 1.5)
                 {
                     rt = Rating(p); rtSec = (DateTime.Now - tapAt).TotalSeconds;
@@ -488,7 +649,7 @@ public class Fisher
                 else
                 {
                     if (noBall == DateTime.MinValue) noBall = DateTime.Now;
-                    if ((DateTime.Now - noBall).TotalSeconds > 1.5) break;
+                    if ((DateTime.Now - noBall).TotalSeconds > 5.0) break;
                 }
             }
             // khong thay chu moi -> "Khong ro", KHONG hoc (ban cu doc nham vong xanh duong thanh "Xuat sac" -> bu vong nhanh troi toi -10)
@@ -507,7 +668,7 @@ public class Fisher
         SleepRnd(800, 1800);  // xem ca vua cau duoc roi moi bam tiep
         SaveFrame(Next(ref last, out t), no + "_3_chuc_mung");
         Log("Bam Nhan de tiep tuc tai " + Tap(1435, 830));
-        WaitFor(q => !Dark(q), 4, "het Chuc mung", ref last, out t);
+        WaitFor(q => !Congrats(q), 4, "het Chuc mung", ref last, out t);
         return "OK";
     }
 }

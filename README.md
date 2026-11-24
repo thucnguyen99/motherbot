@@ -940,9 +940,19 @@ Khi chạy trên máy mới:
 | Tình huống | Bot báo |
 |---|---|
 | Game báo **"Mồi chưa đủ"** | `HET MOI`: đổi tài khoản hoặc mua mồi |
-| Game báo **"Ba lô đã đầy"** | `BALO DAY`: bán hoặc dọn cá trong Ba lô |
+| Game báo **"Ba lô đã đầy"** | `BALO DAY`: bán hoặc dọn cá trong Ba lô. Có `-BaloDay don` thì bot tự dọn và câu tiếp (xem dưới) |
 | Không thấy nút Bắt đầu câu cá sau 30 giây | `LOI`: nhân vật không đứng ở chỗ câu |
 | Đủ số lần câu đã đặt | Tổng kết số lần Tuyệt vời / Xuất sắc / Hụt |
+
+### Ba lô đầy: dừng hay dọn (`-BaloDay`)
+- `-BaloDay dung` (mặc định): dừng lượt câu như trước.
+- `-BaloDay don`: tự dọn rồi câu tiếp, tối đa 5 lần mỗi lượt.
+  - Các bước: Ba lô → tab **Cá** → **Loại bỏ** → tick **Tất cả** → **Xác nhận** → "Bạn có chắc chắn muốn thả cá đã chọn?" → **Xác nhận** → về chỗ câu.
+  - ⚠️ Bước này **thả hết cá trong Ba lô, không lấy lại được**. **Mồi được giữ lại.**
+  - Trước khi bấm Xác nhận, bot kiểm tra ô đầu là Mồi và Mồi không bị chọn; sai thì hủy, không thả.
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\DELL\Documents\tools\motherbot\cau_ca\cong_cu\cau_thu.ps1" -N 200 -NghiSau 10,20 -NghiGiay 25,35 -LeadSec 0.03 -BaloDay don
+```
 
 ### Kết quả thử nghiệm (18/11/2026)
 | Đợt | Câu được | Vòng Tuyệt vời |

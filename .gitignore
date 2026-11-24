@@ -14,6 +14,8 @@ cau_ca/ghi_hinh/
 tham_hiem/ket_qua/
 tham_hiem/ghi_hinh/
 thanh_vat/ghi_hinh/
+tuong_da/ket_qua/
+hoc_mau/
 
 # --- File tam ---
 *.raw
